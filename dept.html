@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Department Hub - จัดการพนักงาน</title>
+
+    <!-- Tailwind & Icons & Fonts & Alerts -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { font-family: 'Kanit', sans-serif; background: #0f172a; margin: 0; height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+        .app-container { width: 100%; max-width: 420px; height: 100%; background: #f8fafc; position: relative; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 0 30px rgba(0,0,0,0.3); }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .tab-content { display: none; flex-direction: column; height: 100%; }
+        .tab-content.active { display: flex; animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .modal-overlay { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+        .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
+        .star-btn { transition: transform 0.1s; cursor: pointer; }
+        .star-btn:active { transform: scale(1.2); }
+        
+        /* สไตล์สำหรับ Loading Screen */
+        #global-loading { position: absolute; inset: 0; background: #f8fafc; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <!-- Loading Screen -->
+        <div id="global-loading">
+            <i data-lucide="loader-2" class="w-10 h-10 text-indigo-600 animate-spin mb-4"></i>
+            <h2 class="text-lg font-bold text-slate-700">กำลังเชื่อมต่อระบบ...</h2>
+            <p class="text-sm text-slate-500" id="loading-text">ตรวจสอบสิทธิ์การเข้าถึง</p>
+        </div>
+
+        <!-- หน้าจอแจ้งเตือนกรณีไม่มีสิทธิ์ -->
+        <div id="no-access-screen" class="hidden absolute inset-0 bg-white z-50 flex-col items-center justify-center p-6 text-center">
+            <div class="w-20 h-20 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-4">
+                <i data-lucide="shield-alert" class="w-10 h-10"></i>
+            </div>
+            <h2 class="text-xl font-bold text-slate-800 mb-2">ปฏิเสธการเข้าถึง</h2>
+            <p class="text-sm text-slate-500 mb-6">คุณยังไม่ได้รับมอบหมายแผนก หรือไม่มีสิทธิ์เข้าใช้งานหน้านี้ กรุณาติดต่อ System Admin</p>
+            <button onclick="window.location.href='index.html'" class="w-full bg-slate-800 text-white font-bold py-4 rounded-xl active:scale-95 transition">กลับหน้าหลัก</button>
+        </div>
+
+        <!-- Header -->
+        <header class="bg-indigo-700 px-6 py-6 text-white rounded-b-[32px] shadow-lg shrink-0 text-center relative z-10">
+            <div class="absolute top-4 right-4 flex gap-2">
+                <button id="role-badge" class="text-[9px] bg-indigo-900 border border-indigo-500 px-2 py-1 rounded-lg opacity-90">โหมด: โหลดข้อมูล...</button>
+                <button onclick="logout()" class="text-[9px] bg-rose-600 border border-rose-500 px-2 py-1 rounded-lg opacity-90 hover:bg-rose-700">ออก</button>
+            </div>
+            <h1 class="text-xl font-black tracking-wide flex items-center justify-center gap-2 mt-2">
+                <i data-lucide="briefcase" class="w-5 h-5 text-indigo-300"></i> DEPARTMENT <span class="text-indigo-300">HUB</span>
+            </h1>
+            <p id="dept-name-display" class="text-sm font-bold mt-1 text-white uppercase tracking-widest bg-indigo-800/50 inline-block px-4 py-1 rounded-full border border-indigo-500/50 shadow-sm">กำลังโหลดแผนก...</p>
+            <p id="current-date" class="text-[10px] text-indigo-200 mt-2 font-mono">ประจำวันที่ ...</p>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="flex-grow overflow-y-auto bg-slate-50 relative z-0 hide-scroll pb-6">
+            
+            <!-- TAB 1: เช็คชื่อเข้างาน (Attendance) -->
+            <div id="view-attendance" class="tab-content active p-4 space-y-4">
+                <div class="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 flex justify-between items-center">
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1"><i data-lucide="check-square" class="w-4 h-4 text-indigo-600"></i> เช็คชื่อประจำวัน</h2>
+                        <p class="text-[10px] text-slate-500 leading-tight mt-1">สแกนผ่าน รปภ. แล้ว: <span id="total-scanned" class="font-bold text-indigo-600">0</span> คน</p>
+                    </div>
+                </div>
+                
+                <div id="attendance-list" class="space-y-3 pb-20">
+                    <!-- รายชื่อพนักงานรอรับเข้างาน (in) -->
+                </div>
+            </div>
+
+            <!-- TAB 2: ประเมินผล (Evaluation) -->
+            <div id="view-evaluation" class="tab-content p-4 space-y-4">
+                <div class="bg-indigo-50 p-4 rounded-3xl border border-indigo-100 flex gap-3 items-center shadow-sm">
+                    <div class="bg-indigo-100 p-2 rounded-xl text-indigo-600 shrink-0"><i data-lucide="star" class="w-5 h-5"></i></div>
+                    <div>
+                        <h2 class="text-sm font-bold text-indigo-900">ประเมินผลการทำงาน</h2>
+                        <p class="text-[10px] text-indigo-600/80 leading-tight">ระบบจะแสดงเฉพาะพนักงานที่คุณ "รับเข้าทำงาน" ในวันนี้เท่านั้น</p>
+                    </div>
+                </div>
+
+                <div id="evaluation-list" class="space-y-3">
+                    <!-- รายการประเมินดาว (working) -->
+                </div>
+
+                <div class="pt-4 pb-20">
+                    <button id="btn-submit-eval" onclick="submitAllEvaluations()" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-indigo-200 active:scale-95 transition hidden">
+                        บันทึกการประเมินผลทั้งหมด
+                    </button>
+                </div>
+            </div>
+
+            <!-- TAB 3: ขอโควต้าคน (Quota Request) -->
+            <div id="view-quota" class="tab-content p-4 space-y-4">
+                
+                <!-- Dashboard สรุปยอด -->
+                <div class="bg-gradient-to-br from-indigo-600 to-purple-700 p-5 rounded-3xl text-white shadow-lg relative overflow-hidden">
+                    <div class="absolute -right-4 -top-4 opacity-10"><i data-lucide="users" class="w-24 h-24"></i></div>
+                    <p class="text-[10px] uppercase tracking-widest text-indigo-200 font-bold mb-1 flex items-center gap-1"><i data-lucide="activity" class="w-3 h-3"></i> ภาพรวมกำลังคน (Real-time)</p>
+                    <div class="flex justify-between items-end mt-3 relative z-10">
+                        <div>
+                            <h3 class="text-4xl font-black tracking-tighter"><span id="q-total-req">0</span> <span class="text-sm font-normal tracking-normal text-indigo-200">อัตรา</span></h3>
+                            <p class="text-[10px] text-indigo-100 mt-0.5">ส่งคำขอโควต้าทั้งหมด</p>
+                        </div>
+                        <div class="text-right">
+                            <h3 class="text-4xl font-black tracking-tighter text-emerald-300"><span id="q-total-act">0</span> <span class="text-sm font-normal tracking-normal text-emerald-100/70">คน</span></h3>
+                            <p class="text-[10px] text-indigo-100 mt-0.5">แอดมินอนุมัติบัตรแล้ว</p>
+                        </div>
+                    </div>
+                    <div class="w-full bg-indigo-900/50 h-2 rounded-full mt-4 overflow-hidden shadow-inner">
+                        <div id="q-progress-bar" class="bg-emerald-400 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                    <div class="mt-2 text-[9px] text-indigo-200 flex justify-between">
+                        <span id="q-diff-text">ขาด 0 อัตรา</span>
+                        <span id="q-pct-text">สำเร็จ 0%</span>
+                    </div>
+                </div>
+
+                <!-- Form สร้างคำขอ -->
+                <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
+                    <h2 class="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <i data-lucide="file-plus" class="w-4 h-4 text-indigo-500"></i> สร้างคำขอกำลังคน (Quota)
+                    </h2>
+                    <form id="form-quota" class="space-y-3" onsubmit="submitQuotaRequest(event)">
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">ชื่อแคมเปญ / โครงการ <span class="text-rose-500">*</span></label>
+                            <input type="text" id="qCampaign" required placeholder="เช่น โปรเจกต์ 11.11" class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500 focus:bg-white transition-colors">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">ตั้งแต่วันที่ <span class="text-rose-500">*</span></label>
+                                <input type="date" id="qStartDate" required class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] outline-none focus:border-indigo-500 font-mono text-slate-700">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">ถึงวันที่ <span class="text-rose-500">*</span></label>
+                                <input type="date" id="qEndDate" required class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] outline-none focus:border-indigo-500 font-mono text-slate-700">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">ตำแหน่งงาน <span class="text-rose-500">*</span></label>
+                                <input type="text" id="qPosition" list="positions-list" required placeholder="เลือกหรือพิมพ์เพิ่ม" class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500 focus:bg-white transition-colors">
+                                <datalist id="positions-list"></datalist>
+                            </div>
+                            <div class="grid grid-cols-3 gap-3">
+                                <div>
+                                    <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">คน <span class="text-rose-500">*</span></label>
+                                    <input type="number" id="qAmount" min="1" required placeholder="1" class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500 font-medium text-slate-700">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">เข้างาน <span class="text-rose-500">*</span></label>
+                                    <input type="time" id="qStartTime" required class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500 font-mono text-slate-700">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-bold text-slate-500 uppercase ml-1">ออกงาน <span class="text-rose-500">*</span></label>
+                                    <input type="time" id="qEndTime" required class="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500 font-mono text-slate-700">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ค่าจ้าง -->
+                        <div class="bg-indigo-50 p-3 rounded-2xl border border-indigo-100 space-y-3 mt-2">
+                            <p class="text-[10px] font-bold text-indigo-800 uppercase flex items-center gap-1"><i data-lucide="coins" class="w-3 h-3"></i> งบประมาณค่าจ้าง / คน</p>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-[9px] font-bold text-indigo-700 ml-1">ค่าแรง (บาท) <span class="text-rose-500">*</span></label>
+                                    <input type="number" id="wBase" required placeholder="0" class="w-full mt-1 p-2 bg-white border border-indigo-200 rounded-lg text-sm outline-none focus:border-indigo-500 font-mono text-slate-700">
+                                </div>
+                                <div>
+                                    <label class="text-[9px] font-bold text-indigo-700 ml-1">ค่ากะ (บาท)</label>
+                                    <input type="number" id="wShift" placeholder="0" class="w-full mt-1 p-2 bg-white border border-indigo-200 rounded-lg text-sm outline-none focus:border-indigo-500 font-mono text-slate-700">
+                                </div>
+                                <div>
+                                    <label class="text-[9px] font-bold text-indigo-700 ml-1">ค่าทักษะ (บาท)</label>
+                                    <input type="number" id="wSkill" placeholder="0" class="w-full mt-1 p-2 bg-white border border-indigo-200 rounded-lg text-sm outline-none focus:border-indigo-500 font-mono text-slate-700">
+                                </div>
+                                <div>
+                                    <label class="text-[9px] font-bold text-indigo-700 ml-1">เงินพิเศษ (บาท)</label>
+                                    <input type="number" id="wSpecial" placeholder="0" class="w-full mt-1 p-2 bg-white border border-indigo-200 rounded-lg text-sm outline-none focus:border-indigo-500 font-mono text-slate-700">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-500 uppercase ml-1 block mt-2">มอบหมายฝ่ายบุคคล (HR) <span class="text-rose-500">*</span></label>
+                            <select id="qHrSelect" required class="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500 font-medium text-slate-700">
+                                <option value="">-- เลือก HR ที่รับผิดชอบ --</option>
+                            </select>
+                        </div>
+
+                        <button type="submit" class="w-full bg-slate-900 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition mt-4 flex items-center justify-center gap-2">
+                            <i data-lucide="send" class="w-4 h-4"></i> ส่งคำขอให้ HR
+                        </button>
+                    </form>
+                </div>
+
+                <div>
+                    <h3 class="text-xs font-bold text-slate-500 uppercase ml-2 mb-2 flex items-center gap-1"><i data-lucide="history" class="w-3 h-3"></i> คำขอกำลังคนที่ส่งไปแล้ว</h3>
+                    <div id="requests-list" class="space-y-3 pb-20">
+                        <!-- รายการโควต้า -->
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bg-white border-t border-slate-200 flex justify-around p-2 shrink-0 relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] rounded-t-3xl">
+            <button id="nav-attendance" onclick="switchMainTab('attendance')" class="flex flex-col items-center justify-center w-full p-2 text-indigo-600 transition-colors">
+                <i data-lucide="check-square" class="w-6 h-6 mb-1"></i>
+                <span class="text-[10px] font-bold">เช็คชื่อ</span>
+            </button>
+            <button id="nav-evaluation" onclick="switchMainTab('evaluation')" class="flex flex-col items-center justify-center w-full p-2 text-slate-400 transition-colors">
+                <i data-lucide="star" class="w-6 h-6 mb-1"></i>
+                <span class="text-[10px] font-bold">ประเมินผล</span>
+            </button>
+            <button id="nav-quota" onclick="switchMainTab('quota')" class="flex flex-col items-center justify-center w-full p-2 text-slate-400 transition-colors relative">
+                <i data-lucide="file-plus" class="w-6 h-6 mb-1"></i>
+                <span class="text-[10px] font-bold">ขอโควต้า</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- ==============================================
+         MODALS 
+         ============================================== -->
+
+    <!-- Modal: ดูประวัติพนักงานแบบรวม -->
+    <div id="history-modal" class="modal-overlay">
+        <div class="bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl flex flex-col max-h-[85vh]">
+            <div class="flex justify-between items-center mb-4 shrink-0">
+                <h3 class="text-lg font-bold text-slate-800">ประวัติการทำงาน</h3>
+                <button onclick="toggleModal('history-modal', false)" class="text-slate-400 bg-slate-100 hover:bg-slate-200 p-1.5 rounded-full active:scale-90 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            
+            <div class="flex items-center gap-4 mb-4 pb-4 border-b border-slate-100 shrink-0">
+                <img id="hist-img" src="" class="w-16 h-16 rounded-full object-cover bg-slate-200 border-2 border-indigo-100 shadow-sm">
+                <div class="flex-1 min-w-0">
+                    <p id="hist-name" class="font-bold text-base text-slate-800 truncate"></p>
+                    <p id="hist-details" class="text-[10px] text-slate-500 font-medium truncate mt-0.5"></p>
+                    <p id="hist-avg" class="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 inline-block font-bold mt-1"></p>
+                </div>
+            </div>
+
+            <div class="flex-grow overflow-y-auto hide-scroll pr-1 space-y-4">
+                <div>
+                    <h4 class="text-xs font-bold text-slate-500 uppercase flex items-center gap-1 mb-2"><i data-lucide="history" class="w-3 h-3"></i> ข้อมูล 30 วันล่าสุด</h4>
+                    <div id="hist-unified-list" class="space-y-3">
+                        <!-- ข้อมูลประวัติจริงจาก Firebase -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: ยกเลิก / แก้ไข โควต้า (เหตุผล) -->
+    <div id="action-modal" class="modal-overlay">
+        <div class="bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl transform scale-100 transition-transform duration-200">
+            <div class="flex flex-col items-center text-center mb-5">
+                <div id="action-icon" class="w-16 h-16 rounded-full flex items-center justify-center mb-3"></div>
+                <h3 id="action-title" class="text-lg font-bold text-slate-800"></h3>
+                <p class="text-xs text-slate-500">กรุณาระบุเหตุผลในการทำรายการ เพื่อแจ้งให้ HR ทราบ</p>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 uppercase ml-1 block mb-1">เหตุผลที่เปลี่ยนแปลง <span class="text-rose-500">*</span></label>
+                    <textarea id="action-reason" rows="3" placeholder="ระบุเหตุผล..." class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500 transition-all text-slate-700"></textarea>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-3 mt-2">
+                    <button onclick="toggleModal('action-modal', false)" class="py-3 bg-slate-100 text-slate-500 font-bold rounded-xl active:scale-95 transition">กลับ</button>
+                    <button id="btn-confirm-action" onclick="confirmCancelQuota()" class="py-3 text-white font-bold rounded-xl shadow-lg active:scale-95 transition"></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. Firebase Setup & Global State
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyArJLTChk1lyzfTph6ELTdzKIdb4sQ_ybc",
+            authDomain: "maersk-mcl-v2.firebaseapp.com",
+            projectId: "maersk-mcl-v2",
+            storageBucket: "maersk-mcl-v2.firebasestorage.app",
+            messagingSenderId: "447590679734",
+            appId: "1:447590679734:web:f6881338981f9ae86bd217",
+            measurementId: "G-9CPJJVL2G6"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const deptUid = urlParams.get('uid') || localStorage.getItem('myAppUserId');
+        
+        let deptHeadData = null;
+        let masterData = { companies: {}, depts: {}, positions: {}, warehouses: {} };
+        let allDeptUsers = []; 
+        let attendanceToday = {}; 
+        let activeQuotaSum = 0;
+        let cancelTargetId = null;
+        let userRatings = {}; 
+        let evalState = {}; // จัดการสถานะดาว/คอมเมนต์ แบบไม่ต้องพึ่งการเรนเดอร์ใหม่
+
+        // กำหนดวันที่ Header
+        document.getElementById('current-date').innerText = `ประจำวันที่ ${new Date().toLocaleDateString('th-TH', {year:'numeric', month:'long', day:'numeric'})}`;
+
+        // ==========================================
+        // 2. Initialization
+        // ==========================================
+        async function initDeptPanel() {
+            if (!deptUid) {
+                document.getElementById('global-loading').style.display = "none";
+                document.getElementById('no-access-screen').classList.remove("hidden");
+                document.getElementById('no-access-screen').classList.add("flex");
+                return;
+            }
+
+            try {
+                const userDoc = await db.collection("users").doc(deptUid).get();
+                if (!userDoc.exists) throw new Error("ไม่พบข้อมูลบัญชีของคุณ");
+                deptHeadData = userDoc.data();
+                
+                // ตรวจสอบสิทธิ์ (รวม Superuser ด้วย)
+                if (deptHeadData.role !== "dept" && deptHeadData.role !== "asst_dept" && deptHeadData.role !== "superuser") {
+                    document.getElementById('global-loading').style.display = "none";
+                    document.getElementById('no-access-screen').classList.replace("hidden", "flex");
+                    return;
+                }
+
+                // ตรวจสอบการมอบหมายแผนก
+                if (!deptHeadData.managedDeptId) {
+                    document.getElementById('global-loading').style.display = "none";
+                    document.getElementById('no-access-screen').classList.replace("hidden", "flex");
+                    return;
+                }
+
+                await loadMasterData();
+                
+                // อัปเดต UI 
+                const dpName = masterData.depts[deptHeadData.managedDeptId] || "ไม่ระบุแผนก";
+                document.getElementById("dept-name-display").innerText = dpName;
+                
+                if (deptHeadData.role === "asst_dept") {
+                    document.getElementById("nav-quota").style.display = "none";
+                    document.getElementById("role-badge").innerText = "โหมด: Supervisor";
+                    document.getElementById("role-badge").className = "text-[9px] bg-slate-700 border border-slate-500 px-2 py-1 rounded-lg opacity-90";
+                } else {
+                    document.getElementById("role-badge").innerText = "โหมด: Manager";
+                }
+
+                // ซ่อน Loading และเริ่มดึงข้อมูลเรียลไทม์
+                document.getElementById('global-loading').style.display = "none";
+                lucide.createIcons();
+
+                listenToEvaluations(); 
+                listenToUsersAndAttendance();
+                if(deptHeadData.role !== "asst_dept") listenToQuotaRequests();
+
+            } catch (error) {
+                document.getElementById('loading-text').innerText = `ข้อผิดพลาด: ${error.message}`;
+            }
+        }
+
+        async function loadMasterData() {
+            const [whSnap, deptSnap, compSnap, posSnap, hrSnap] = await Promise.all([
+                db.collection("warehouses").get(),
+                db.collection("departments").get(),
+                db.collection("companies").get(),
+                db.collection("positions").get(),
+                db.collection("users").where("role", "==", "hr").get()
+            ]);
+
+            whSnap.forEach(doc => masterData.warehouses[doc.id] = doc.data().name);
+            deptSnap.forEach(doc => masterData.depts[doc.id] = doc.data().name);
+            compSnap.forEach(doc => masterData.companies[doc.id] = doc.data().name);
+            
+            const dl = document.getElementById("positions-list");
+            if (dl) {
+                posSnap.forEach(doc => {
+                    masterData.positions[doc.id] = doc.data().name;
+                    dl.innerHTML += `<option value="${doc.data().name}">`;
+                });
+            }
+
+            const hrSelect = document.getElementById("qHrSelect");
+            hrSnap.forEach(doc => {
+                hrSelect.innerHTML += `<option value="${doc.id}">${doc.data().fullname}</option>`;
+            });
+        }
+
+        // ==========================================
+        // 3. Real-time Listeners
+        // ==========================================
+        function listenToEvaluations() {
+            // คำนวณค่าเฉลี่ยดาว
+            db.collection("daily_records")
+              .where("deptId", "==", deptHeadData.managedDeptId)
+              .where("status", "==", "evaluated")
+              .onSnapshot(snap => {
+                  userRatings = {}; 
+                  snap.forEach(doc => {
+                      const d = doc.data();
+                      if(!d.uid) return;
+                      if (!userRatings[d.uid]) userRatings[d.uid] = { total: 0, count: 0 };
+                      if (d.rating) {
+                          userRatings[d.uid].total += d.rating;
+                          userRatings[d.uid].count += 1;
+                      }
+                  });
+                  renderAttendance(); // Refresh for stars
+              });
+        }
+
+        function listenToUsersAndAttendance() {
+            // ดึงพนักงาน
+            db.collection("users")
+              .where("role", "==", "visitor")
+              .where("status", "==", "approved")
+              .where("departmentId", "==", deptHeadData.managedDeptId)
+              .onSnapshot(userSnap => {
+                  allDeptUsers = [];
+                  userSnap.forEach(doc => allDeptUsers.push({ id: doc.id, ...doc.data() }));
+                  renderAttendance();
+                  renderEvaluation();
+                  if(deptHeadData.role !== "asst_dept") updateQuotaDashboard();
+              });
+
+            // ดึงประวัติเข้าออกวันนี้
+            const todayStr = new Date().toISOString().split('T')[0];
+            db.collection("daily_records")
+              .where("date", "==", todayStr)
+              .where("deptId", "==", deptHeadData.managedDeptId)
+              .onSnapshot(attSnap => {
+                  attendanceToday = {};
+                  attSnap.forEach(doc => attendanceToday[doc.data().uid] = { id: doc.id, ...doc.data() });
+                  renderAttendance();
+                  renderEvaluation();
+              });
+        }
+
+        function getAvgScore(uid) {
+            if (userRatings[uid] && userRatings[uid].count > 0) return (userRatings[uid].total / userRatings[uid].count).toFixed(1);
+            return 0;
+        }
+
+        // ==========================================
+        // TAB 1: เช็คชื่อ (Attendance)
+        // ==========================================
+        function renderAttendance() {
+            const listEl = document.getElementById('attendance-list');
+            listEl.innerHTML = '';
+            
+            const presentUsers = allDeptUsers.filter(u => attendanceToday[u.id] && attendanceToday[u.id].status === 'in');
+            document.getElementById('total-scanned').innerText = presentUsers.length;
+
+            if (presentUsers.length === 0) {
+                listEl.innerHTML = '<div class="bg-white p-8 rounded-3xl border border-slate-200 text-center"><i data-lucide="clock" class="w-8 h-8 text-slate-300 mx-auto mb-2"></i><p class="text-sm font-bold text-slate-500">รอรับพนักงานเข้าแผนก</p></div>';
+                lucide.createIcons();
+                return;
+            }
+
+            presentUsers.forEach(user => {
+                const attData = attendanceToday[user.id];
+                const compStr = masterData.companies[user.companyId] || 'ไม่ระบุ';
+                const posStr = masterData.positions[user.positionId] || 'ไม่ระบุ';
+                const avg = getAvgScore(user.id);
+                
+                let scoreColor = avg >= 4.0 ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : (avg >= 3.0 ? 'text-amber-600 bg-amber-50 border-amber-100' : (avg > 0 ? 'text-rose-600 bg-rose-50 border-rose-100' : 'text-slate-500 bg-slate-50 border-slate-200'));
+                let starColor = avg >= 4.0 ? 'text-emerald-500 fill-emerald-500' : (avg >= 3.0 ? 'text-amber-500 fill-amber-500' : (avg > 0 ? 'text-rose-500 fill-rose-500' : 'text-slate-400'));
+
+                listEl.innerHTML += `
+                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col hover:border-indigo-300 transition-colors">
+                        <div class="flex items-start gap-3">
+                            <div class="relative shrink-0">
+                                <img src="${user.photoUrl || 'https://via.placeholder.com/150'}" class="w-12 h-12 rounded-full object-cover bg-slate-100 border border-slate-100 shadow-sm">
+                                <div class="absolute -bottom-1.5 -right-1 bg-emerald-50 text-emerald-600 border border-emerald-200 text-[8px] font-bold px-1 rounded-sm shadow-sm flex items-center">
+                                    <i data-lucide="shield-check" class="w-2.5 h-2.5 mr-0.5"></i> ${attData.scanInTime || '-'}
+                                </div>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <h4 class="font-bold text-sm text-slate-800 truncate leading-tight">${user.fullname}</h4>
+                                <p class="text-[10px] text-slate-500 truncate my-0.5">${compStr} | ${posStr}</p>
+                                <div class="mt-1.5 flex items-center gap-2">
+                                    <span class="text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${scoreColor}">
+                                        <i data-lucide="star" class="w-3 h-3 ${starColor}"></i> เฉลี่ย: ${avg > 0 ? avg+'/5' : 'ไม่มี'}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="flex flex-col gap-1 items-end shrink-0">
+                                <button onclick="openHistoryModal('${user.id}')" class="text-[9px] text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-1 rounded-lg font-bold active:scale-90 transition flex items-center gap-1 shadow-sm"><i data-lucide="file-text" class="w-3 h-3"></i> ดูประวัติ</button>
+                            </div>
+                        </div>
+                        <div class="flex gap-2 mt-3">
+                            <button onclick="handleAttendance('${attData.id}', 'working')" class="flex-1 bg-emerald-50 text-emerald-600 border border-emerald-200 py-2.5 rounded-xl text-xs font-bold hover:bg-emerald-100 active:scale-95 transition shadow-sm flex justify-center items-center gap-1"><i data-lucide="check" class="w-4 h-4"></i> รับเข้าทำงาน</button>
+                            <button onclick="handleAttendance('${attData.id}', 'not_show')" class="flex-1 bg-rose-50 text-rose-600 border border-rose-200 py-2.5 rounded-xl text-xs font-bold hover:bg-rose-100 active:scale-95 transition shadow-sm flex justify-center items-center gap-1"><i data-lucide="x" class="w-4 h-4"></i> ไม่มา</button>
+                        </div>
+                    </div>
+                `;
+            });
+            lucide.createIcons();
+        }
+
+        window.handleAttendance = async function(recordId, newStatus) {
+            if (newStatus === 'not_show') {
+                const res = await Swal.fire({ title: 'พนักงานไม่มา?', text: "ยืนยันการบันทึกว่าพนักงานละทิ้งหน้าที่", icon: 'warning', showCancelButton: true, confirmButtonColor: '#e63946', confirmButtonText: 'ยืนยัน ไม่มา' });
+                if(!res.isConfirmed) return;
+            }
+            try { 
+                await db.collection("daily_records").doc(recordId).update({ status: newStatus }); 
+                if(newStatus === 'working') {
+                    Swal.fire({icon: 'success', title: 'รับพนักงานสำเร็จ', text: 'รายชื่อถูกย้ายไปที่หน้าประเมินผล', timer: 1500, showConfirmButton: false});
+                }
+            } catch (e) { Swal.fire('Error', e.message, 'error'); }
+        };
+
+        // ==========================================
+        // TAB 2: ประเมินผล (Evaluation)
+        // ==========================================
+        function renderEvaluation() {
+            const listEl = document.getElementById('evaluation-list');
+            listEl.innerHTML = '';
+            
+            const workingUsers = allDeptUsers.filter(u => attendanceToday[u.id] && attendanceToday[u.id].status === 'working');
+            const btnSubmit = document.getElementById('btn-submit-eval');
+
+            if (workingUsers.length === 0) {
+                listEl.innerHTML = '<div class="text-center py-10 text-slate-400 text-sm bg-white rounded-3xl border border-slate-100 shadow-sm">ยังไม่มีพนักงานที่รอการประเมินในขณะนี้</div>';
+                btnSubmit.classList.add('hidden');
+                return;
+            }
+
+            btnSubmit.classList.remove('hidden');
+
+            workingUsers.forEach(user => {
+                // Initialize state if not exists
+                if(!evalState[user.id]) evalState[user.id] = { stars: 0, comment: '', recordId: attendanceToday[user.id].id };
+                
+                const currentStars = evalState[user.id].stars;
+                const currentComment = evalState[user.id].comment;
+                const compStr = masterData.companies[user.companyId] || 'ไม่ระบุ';
+                const posStr = masterData.positions[user.positionId] || 'ไม่ระบุ';
+
+                let starsHtml = '';
+                for (let i = 1; i <= 5; i++) {
+                    const fillClass = i <= currentStars ? 'fill-amber-400 text-amber-400 drop-shadow-md' : 'text-slate-200';
+                    starsHtml += `<i data-lucide="star" onclick="setLocalStar('${user.id}', ${i})" class="w-8 h-8 star-btn ${fillClass}"></i>`;
+                }
+
+                listEl.innerHTML += `
+                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-3 relative overflow-hidden">
+                        <div class="card-stripe stripe-primary"></div>
+                        <div class="flex items-center gap-3 border-b border-slate-50 pb-3 pl-2">
+                            <img src="${user.photoUrl || 'https://via.placeholder.com/150'}" class="w-12 h-12 rounded-full object-cover bg-slate-100 border border-slate-100 shrink-0">
+                            <div class="flex-1 min-w-0">
+                                <h4 class="font-bold text-sm text-slate-800 truncate">${user.fullname}</h4>
+                                <p class="text-[10px] text-slate-500 my-0.5 truncate">${compStr} | ${posStr}</p>
+                            </div>
+                            <div class="bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-1 rounded-lg text-xs font-bold shadow-sm shrink-0">
+                                ${currentStars}/5
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-3 pl-2">
+                            <div class="flex justify-between items-center px-1">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase">ให้คะแนนผลงาน</span>
+                                <div class="flex gap-1">${starsHtml}</div>
+                            </div>
+                            <div class="relative">
+                                <input type="text" value="${currentComment}" oninput="setLocalComment('${user.id}', this.value)" placeholder="ระบุคอมเมนต์ประกอบ (ถ้ามี)" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 transition-all text-slate-600">
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            lucide.createIcons();
+        }
+
+        window.setLocalStar = function(uid, stars) {
+            if(!evalState[uid]) return;
+            evalState[uid].stars = stars;
+            renderEvaluation(); // Rerender just to update stars UI
+        };
+
+        window.setLocalComment = function(uid, val) {
+            if(!evalState[uid]) return;
+            evalState[uid].comment = val;
+            // No rerender here so we don't lose focus while typing
+        };
+
+        window.submitAllEvaluations = async function() {
+            // Validate all stars > 0
+            const uids = Object.keys(evalState);
+            let isValid = true;
+            for(let id of uids) {
+                if(evalState[id].stars === 0) isValid = false;
+            }
+            
+            if(!isValid) {
+                Swal.fire('ประเมินไม่ครบ!', 'กรุณาให้คะแนนดาวพนักงานให้ครบทุกคนก่อนบันทึก', 'warning');
+                return;
+            }
+
+            // Show loading
+            Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+
+            try {
+                // Batch Update
+                const batch = db.batch();
+                for(let id of uids) {
+                    const data = evalState[id];
+                    const ref = db.collection("daily_records").doc(data.recordId);
+                    batch.update(ref, {
+                        status: 'evaluated',
+                        rating: data.stars,
+                        comment: data.comment,
+                        evalTime: new Date().toLocaleTimeString('th-TH')
+                    });
+                }
+                await batch.commit();
+                
+                // Clear state
+                evalState = {};
+                Swal.fire({ icon: 'success', title: 'บันทึกสำเร็จ', text: `ประเมินผลพนักงานเสร็จสิ้น`, timer: 2000, showConfirmButton: false });
+
+            } catch (e) {
+                Swal.fire('เกิดข้อผิดพลาด', e.message, 'error');
+            }
+        };
+
+        // ==========================================
+        // TAB 3: โควต้า
+        // ==========================================
+        function listenToQuotaRequests() {
+            db.collection("quota_requests").where("deptId", "==", deptHeadData.managedDeptId).onSnapshot(snap => {
+                  const container = document.getElementById("requests-list");
+                  container.innerHTML = "";
+                  activeQuotaSum = 0;
+
+                  if(snap.empty) { container.innerHTML = `<div class="empty-state p-4"><p class="text-xs">ยังไม่มีประวัติการขอโควต้า</p></div>`; return; }
+
+                  let reqs = [];
+                  snap.forEach(doc => {
+                      const d = doc.data(); d.id = doc.id; reqs.push(d);
+                      if (d.status === 'pending' || d.status === 'approved') activeQuotaSum += parseInt(d.amount);
+                  });
+                  reqs.sort((a,b) => b.createdAt?.seconds - a.createdAt?.seconds);
+
+                  reqs.forEach(req => {
+                      let sHtml = ''; let bClass = ''; let actionsHtml = '';
+                      if(req.status === 'pending') { 
+                          sHtml = '<i data-lucide="clock" class="w-3 h-3"></i> รอดำเนินการ'; 
+                          bClass = 'bg-white border border-amber-200'; 
+                          actionsHtml = `
+                            <div class="flex gap-2 mt-3 pt-3 border-t border-dashed border-amber-100">
+                                <button onclick="openActionModal('${req.id}', 'ยกเลิก')" class="text-[10px] text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-2 rounded-xl font-bold flex-1 transition border border-rose-100 flex justify-center items-center gap-1"><i data-lucide="trash-2" class="w-3 h-3"></i> ยกเลิกคำขอ</button>
+                            </div>
+                          `;
+                      }
+                      else if(req.status === 'approved') { 
+                          sHtml = '<i data-lucide="check-circle" class="w-3 h-3"></i> อนุมัติแล้ว'; 
+                          bClass = 'bg-white border border-emerald-200 opacity-90'; 
+                      }
+                      else { 
+                          sHtml = `<i data-lucide="x-circle" class="w-3 h-3"></i> ถูกปฏิเสธ`; 
+                          bClass = 'bg-white border border-rose-200 opacity-70'; 
+                      }
+
+                      container.innerHTML += `
+                          <div class="${bClass} p-4 rounded-2xl shadow-sm">
+                              <div class="flex justify-between items-start mb-2">
+                                  <div>
+                                      <p class="text-sm font-bold text-indigo-700">${req.campaignName}</p>
+                                      <p class="text-[10px] text-slate-500 mt-0.5">${req.startDate} ถึง ${req.endDate} • <span class="font-bold text-slate-700">${req.startTime} - ${req.endTime}</span></p>
+                                      <p class="text-xs text-slate-800 font-bold mt-1">ต้องการ: <span class="text-rose-500">${req.amount} คน</span> • ${req.position}</p>
+                                  </div>
+                                  <span class="text-[9px] font-bold px-2 py-1 rounded-md border flex items-center gap-1 shrink-0 shadow-sm ${req.status==='pending'?'bg-amber-50 text-amber-600 border-amber-200':(req.status==='approved'?'bg-emerald-50 text-emerald-600 border-emerald-200':'bg-rose-50 text-rose-600 border-rose-200')}">
+                                      ${sHtml}
+                                  </span>
+                              </div>
+                              ${req.cancelReason ? `<div class="bg-rose-50 p-2 rounded-lg border border-rose-100 mt-2"><p class="text-[10px] text-rose-700 italic flex items-start gap-1"><i data-lucide="message-square" class="w-3 h-3 mt-0.5 shrink-0"></i> "${req.cancelReason}"</p></div>` : ''}
+                              ${actionsHtml}
+                          </div>
+                      `;
+                  });
+                  lucide.createIcons();
+                  updateQuotaDashboard();
+              });
+        }
+
+        function updateQuotaDashboard() {
+            const activeStaff = allDeptUsers.length;
+            document.getElementById("q-total-req").innerText = activeQuotaSum;
+            document.getElementById("q-total-act").innerText = activeStaff;
+            
+            const diff = activeStaff - activeQuotaSum;
+            document.getElementById("q-diff-text").innerText = diff >= 0 ? `เกิน/พอดี ${diff} คน` : `ขาด ${Math.abs(diff)} อัตรา`;
+
+            const pb = document.getElementById("q-progress-bar");
+            if (activeQuotaSum === 0) { pb.style.width = "0%"; document.getElementById("q-pct-text").innerText = "0%"; }
+            else {
+                let pct = (activeStaff / activeQuotaSum) * 100;
+                pb.style.width = Math.min(pct, 100) + "%";
+                document.getElementById("q-pct-text").innerText = `สำเร็จ ${pct.toFixed(0)}%`;
+                pb.className = pct >= 100 ? "bg-amber-400 h-full rounded-full transition-all duration-500" : "bg-emerald-400 h-full rounded-full transition-all duration-500";
+            }
+        }
+
+        window.submitQuotaRequest = async function(e) {
+            e.preventDefault();
+            const data = {
+                deptId: deptHeadData.managedDeptId,
+                warehouseId: deptHeadData.managedWarehouseId || '',
+                campaignName: document.getElementById("qCampaign").value,
+                startDate: document.getElementById("qStartDate").value,
+                endDate: document.getElementById("qEndDate").value,
+                position: document.getElementById("qPosition").value,
+                amount: parseInt(document.getElementById("qAmount").value),
+                startTime: document.getElementById("qStartTime").value,
+                endTime: document.getElementById("qEndTime").value,
+                assignedHrId: document.getElementById("qHrSelect").value,
+                wages: {
+                    base: parseInt(document.getElementById("wBase").value) || 0,
+                    shift: parseInt(document.getElementById("wShift").value) || 0,
+                    skill: parseInt(document.getElementById("wSkill").value) || 0,
+                    special: parseInt(document.getElementById("wSpecial").value) || 0
+                },
+                status: 'pending',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: deptUid
+            };
+
+            Swal.fire({ title: 'กำลังส่งคำขอ...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+
+            try {
+                await db.collection("quota_requests").add(data);
+                Swal.fire({ icon: 'success', title: 'สร้างคำขอสำเร็จ', timer: 2000, showConfirmButton: false });
+                e.target.reset();
+            } catch (err) { Swal.fire('Error', err.message, 'error'); }
+        }
+
+        window.openActionModal = function(id, actionType) {
+            cancelTargetId = id;
+            document.getElementById('action-reason').value = '';
+            document.getElementById('action-title').innerText = "ยืนยันการยกเลิกคำขอโควต้า";
+            document.getElementById('action-icon').className = "w-16 h-16 rounded-full flex items-center justify-center mb-3 bg-rose-100 text-rose-500";
+            document.getElementById('action-icon').innerHTML = '<i data-lucide="trash-2" class="w-8 h-8"></i>';
+            const btn = document.getElementById('btn-confirm-action');
+            btn.innerText = "ยืนยันยกเลิก";
+            btn.className = "py-3 text-white font-bold rounded-xl shadow-lg active:scale-95 transition bg-rose-600 shadow-rose-200 flex-2";
+            
+            lucide.createIcons();
+            toggleModal('action-modal', true);
+        }
+
+        window.confirmCancelQuota = async function() {
+            const reason = document.getElementById('action-reason').value.trim();
+            if(!reason) return Swal.fire('ข้อมูลไม่ครบ', 'กรุณาระบุเหตุผลการยกเลิก', 'warning');
+            
+            try {
+                await db.collection("quota_requests").doc(cancelTargetId).update({ status: 'cancelled', cancelReason: reason });
+                toggleModal('action-modal', false);
+                Swal.fire({ icon: 'success', title: 'ยกเลิกสำเร็จ', timer: 1500, showConfirmButton: false });
+            } catch (e) { Swal.fire('Error', e.message, 'error'); }
+        }
+
+        // ==========================================
+        // Modal & Navigation
+        // ==========================================
+        window.openHistoryModal = async function(uid) {
+            const container = document.getElementById("hist-unified-list");
+            container.innerHTML = "<div class='text-center py-6 text-slate-400 text-sm'>กำลังโหลดประวัติ...</div>";
+            toggleModal('history-modal', true);
+
+            try {
+                // Fetch User Details logic inside here so it's fresh
+                const userDoc = await db.collection("users").doc(uid).get();
+                if(userDoc.exists) {
+                    const w = userDoc.data();
+                    const compStr = masterData.companies[w.companyId] || '-';
+                    const posStr = masterData.positions[w.positionId] || '-';
+                    const avg = getAvgScore(uid);
+
+                    document.getElementById('hist-img').src = w.photoUrl || 'https://via.placeholder.com/150';
+                    document.getElementById('hist-name').innerText = w.fullname;
+                    document.getElementById('hist-details').innerText = `${compStr} | ${posStr}`;
+                    document.getElementById('hist-avg').innerHTML = `<i data-lucide="star" class="w-3 h-3 inline -mt-0.5 ${avg >= 4 ? 'text-emerald-500 fill-emerald-500' : (avg>0 ? 'text-amber-500 fill-amber-500' : 'text-slate-400')}"></i> เฉลี่ย: ${avg>0?avg:'-'} ดาว`;
+                }
+
+                // Fetch History
+                const snap = await db.collection("daily_records").where("uid", "==", uid).get();
+                if(snap.empty) { container.innerHTML = "<p class='text-[10px] text-slate-400 italic text-center py-4 bg-slate-50 rounded-xl border border-slate-100'>ไม่มีประวัติการทำงานในระบบ</p>"; return; }
+                
+                let records = [];
+                snap.forEach(doc => records.push(doc.data()));
+                records.sort((a,b) => (b.date || "").localeCompare(a.date || ""));
+                records = records.slice(0, 30);
+                
+                container.innerHTML = "";
+                records.forEach(h => {
+                    const statusColor = h.status === 'evaluated' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : (h.status === 'not_show' ? 'text-rose-600 bg-rose-50 border-rose-100' : 'text-indigo-600 bg-indigo-50 border-indigo-100');
+                    let sText = h.status === 'evaluated' ? 'ประเมินแล้ว' : (h.status === 'not_show' ? 'ไม่มา' : (h.status === 'working' ? 'กำลังทำงาน' : 'รอประเมิน'));
+
+                    let evalHtml = '';
+                    if(h.status === 'evaluated' && h.rating > 0) {
+                        evalHtml = `
+                            <div class="mt-2 pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-[10px] font-bold text-slate-500 uppercase">ผลประเมินรายวัน:</span>
+                                    <span class="text-[10px] font-bold text-amber-600 flex items-center gap-0.5 bg-amber-50 px-1.5 rounded"><i data-lucide="star" class="w-3 h-3 fill-amber-500 text-amber-500"></i> ${h.rating}/5 ดาว</span>
+                                </div>
+                                ${h.comment ? `<p class="text-[10px] text-slate-600 italic bg-white p-2 rounded-lg border border-slate-100"><span class="font-bold text-slate-400">คอมเมนต์:</span> "${h.comment}"</p>` : ''}
+                            </div>
+                        `;
+                    }
+
+                    container.innerHTML += `
+                        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl shadow-sm">
+                            <div class="flex justify-between items-start mb-1.5">
+                                <span class="text-xs font-bold text-slate-700"><i data-lucide="calendar" class="w-3 h-3 inline-block -mt-0.5 text-indigo-500"></i> ${h.date}</span>
+                                <span class="text-[9px] font-bold px-2 py-0.5 rounded border ${statusColor}">${sText}</span>
+                            </div>
+                            <p class="text-[10px] text-slate-500 font-medium flex gap-2"><span>IN: <strong class="text-emerald-600">${h.scanInTime||'-'}</strong></span> <span>OUT: <strong class="text-amber-600">${h.scanOutTime||'-'}</strong></span></p>
+                            ${evalHtml}
+                        </div>
+                    `;
+                });
+                lucide.createIcons();
+
+            } catch (e) { container.innerHTML = `<div class="text-rose-500 text-xs">Error: ${e.message}</div>`; }
+        }
+
+        window.toggleModal = function(modalId, show) { 
+            const modal = document.getElementById(modalId); 
+            if(show) modal.classList.add('active'); else modal.classList.remove('active'); 
+        };
+
+        window.closeReasonModal = () => toggleModal('action-modal', false);
+        window.closeHistoryModal = () => toggleModal('history-modal', false);
+
+        window.switchMainTab = function(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            ['attendance', 'evaluation', 'quota'].forEach(t => {
+                const btn = document.getElementById('nav-' + t);
+                if(btn) { btn.classList.remove('text-indigo-600'); btn.classList.add('text-slate-400'); }
+            });
+
+            document.getElementById('view-' + tabName).classList.add('active');
+            document.getElementById('nav-' + tabName).classList.remove('text-slate-400');
+            document.getElementById('nav-' + tabName).classList.add('text-indigo-600');
+            
+            // Scroll nav into view centered on mobile
+            document.getElementById('nav-' + tabName).scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        };
+
+        window.logout = function() {
+            localStorage.removeItem("myAppUserId");
+            localStorage.removeItem("myAppRole");
+            window.location.href = "index.html";
+        }
+
+        initDeptPanel();
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Safety Dashboard - ระบบจัดการความปลอดภัย</title>
+    
+    <!-- Tailwind CSS, Lucide Icons, Google Fonts -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { font-family: 'Kanit', sans-serif; background: #0f172a; margin: 0; height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+        .app-container { width: 100%; max-width: 450px; height: 100%; background: #f8fafc; position: relative; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 0 30px rgba(0,0,0,0.3); }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        
+        .tab-content { display: none; flex-direction: column; height: 100%; }
+        .tab-content.active { display: flex; animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+        .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
+
+        /* Custom Input */
+        .input-field { width: 100%; padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 13px; outline: none; transition: all 0.2s; background: #f8fafc; color: #334155; font-family: inherit;}
+        .input-field:focus { border-color: #059669; background: white; box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1); }
+        .input-label { display: block; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 4px; margin-left: 4px; }
+
+        #global-loading { position: absolute; inset: 0; background: #f8fafc; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <!-- Loading Screen -->
+        <div id="global-loading">
+            <i data-lucide="loader-2" class="w-10 h-10 text-emerald-600 animate-spin mb-4"></i>
+            <h2 class="text-lg font-bold text-slate-700">กำลังเชื่อมต่อระบบ...</h2>
+            <p class="text-sm text-slate-500" id="loading-text">ตรวจสอบสิทธิ์ จป.</p>
+        </div>
+
+        <!-- หน้าจอแจ้งเตือนกรณีไม่มีสิทธิ์ -->
+        <div id="no-access-screen" class="hidden absolute inset-0 bg-white z-50 flex-col items-center justify-center p-6 text-center">
+            <div class="w-20 h-20 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-4">
+                <i data-lucide="shield-alert" class="w-10 h-10"></i>
+            </div>
+            <h2 class="text-xl font-bold text-slate-800 mb-2">ปฏิเสธการเข้าถึง</h2>
+            <p class="text-sm text-slate-500 mb-6">คุณไม่มีสิทธิ์เข้าใช้งานหน้านี้ (เฉพาะเจ้าหน้าที่ความปลอดภัย - Safety)</p>
+            <button onclick="window.location.replace('./index.html')" class="w-full bg-[#0f766e] text-white font-bold py-4 rounded-xl active:scale-95 transition">กลับหน้าหลัก</button>
+        </div>
+
+        <!-- Header (ย่อให้เล็กที่สุด ไม่มีเมนูแท็บแล้ว) -->
+        <header class="bg-gradient-to-r from-teal-700 to-emerald-700 px-4 py-4 text-white rounded-b-2xl shadow-md shrink-0 relative z-10 border-b-2 border-emerald-400">
+            <div class="flex items-center justify-between">
+                <h1 class="text-base font-black tracking-wide flex items-center gap-1.5">
+                    <i data-lucide="shield-check" class="w-5 h-5 text-emerald-300"></i> SAFETY <span class="text-emerald-300">CENTER</span>
+                </h1>
+                <button onclick="logout()" class="text-[10px] font-bold bg-rose-600 hover:bg-rose-700 px-2.5 py-1.5 rounded-lg transition shadow-sm border border-rose-500 flex items-center gap-1">
+                    <i data-lucide="log-out" class="w-3 h-3"></i> ออก
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="flex-grow overflow-y-auto bg-slate-50 relative z-0 hide-scroll">
+            
+            <!-- TAB 1: บันทึกการเข้าออก -->
+            <div id="tab-logs" class="tab-content active p-3 flex flex-col h-full">
+                
+                <!-- Date Range Picker & Refresh -->
+                <div class="flex gap-2 mb-3 shrink-0 items-center">
+                    <div class="flex-1 flex items-center gap-1">
+                        <input type="date" id="log-start-date" onchange="loadDataForDate()" class="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-emerald-800 outline-none focus:border-emerald-500 shadow-sm font-mono">
+                        <span class="text-[10px] font-bold text-slate-400">-</span>
+                        <input type="date" id="log-end-date" onchange="loadDataForDate()" class="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-emerald-800 outline-none focus:border-emerald-500 shadow-sm font-mono">
+                    </div>
+                    <button onclick="resetToToday()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg font-bold text-[10px] shadow-sm transition active:scale-95 flex items-center gap-1 shrink-0">
+                        <i data-lucide="refresh-cw" class="w-3 h-3"></i> วันนี้
+                    </button>
+                </div>
+
+                <!-- Stats Grid -->
+                <div class="grid grid-cols-3 gap-2 mb-3 shrink-0">
+                    <div class="bg-white p-2 text-center rounded-xl border-b-[3px] border-emerald-500 shadow-sm">
+                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">เข้า (IN)</p>
+                        <h3 id="stat-in" class="text-xl font-black text-emerald-600 leading-none">0</h3>
+                    </div>
+                    <div class="bg-white p-2 text-center rounded-xl border-b-[3px] border-amber-500 shadow-sm">
+                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">ออก (OUT)</p>
+                        <h3 id="stat-out" class="text-xl font-black text-amber-500 leading-none">0</h3>
+                    </div>
+                    <div class="bg-white p-2 text-center rounded-xl border-b-[3px] border-blue-500 shadow-sm">
+                        <p class="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">ค้างในพื้นที่</p>
+                        <h3 id="stat-remain" class="text-xl font-black text-blue-600 leading-none">0</h3>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-end mb-2 shrink-0 px-1">
+                    <h3 class="text-[11px] font-bold text-slate-600 uppercase flex items-center gap-1"><i data-lucide="list" class="w-3.5 h-3.5"></i> รายชื่อผู้เข้าพื้นที่</h3>
+                    <span class="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full animate-pulse flex items-center gap-1"><span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> Real-time</span>
+                </div>
+                
+                <div id="logs-list" class="space-y-2 pb-4 flex-grow overflow-y-auto hide-scroll">
+                    <!-- รายการจะถูกสร้างที่นี่ -->
+                </div>
+            </div>
+
+            <!-- TAB 2: Export Data -->
+            <div id="tab-export" class="tab-content p-4">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 mt-2">
+                    <div class="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-3 mx-auto">
+                        <i data-lucide="file-spreadsheet" class="w-6 h-6"></i>
+                    </div>
+                    <h2 class="text-base font-bold text-center text-slate-800 mb-1">ดาวน์โหลดรายงานความปลอดภัย</h2>
+                    <p class="text-[11px] text-center text-slate-500 mb-5">เลือกช่วงวันที่ที่ต้องการเพื่อส่งออกประวัติการเข้า-ออกเป็นไฟล์ Excel</p>
+                    
+                    <div class="space-y-4 mb-5">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="input-label">ตั้งแต่วันที่</label>
+                                <input type="date" id="exportStartDate" class="input-field py-2.5 text-xs font-mono">
+                            </div>
+                            <div>
+                                <label class="input-label">ถึงวันที่</label>
+                                <input type="date" id="exportEndDate" class="input-field py-2.5 text-xs font-mono">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button onclick="exportCSV()" class="w-full bg-[#0f172a] hover:bg-slate-800 text-white font-bold py-3.5 rounded-xl shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2 text-sm">
+                        <i data-lucide="download" class="w-4 h-4 text-emerald-400"></i> ดาวน์โหลดรายงาน (CSV)
+                    </button>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bg-white border-t border-slate-200 flex justify-around p-2 shrink-0 relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] rounded-t-3xl">
+            <button id="nav-logs" onclick="switchTab('logs')" class="flex flex-col items-center justify-center w-full p-2 text-emerald-600 transition-colors">
+                <i data-lucide="list" class="w-6 h-6 mb-1"></i>
+                <span class="text-[10px] font-bold">การเข้า-ออก</span>
+            </button>
+            <button id="nav-export" onclick="switchTab('export')" class="flex flex-col items-center justify-center w-full p-2 text-slate-400 transition-colors">
+                <i data-lucide="download" class="w-6 h-6 mb-1"></i>
+                <span class="text-[10px] font-bold">ส่งออกรายงาน</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- ==============================================
+         MODALS 
+         ============================================== -->
+
+    <!-- Modal ดูรายละเอียดบุคคล -->
+    <div id="detail-modal" class="modal-overlay">
+        <div class="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl relative transform scale-100 transition-transform">
+            <button onclick="closeModal('detail-modal')" class="absolute top-4 right-4 p-1.5 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-full active:scale-90 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            
+            <div class="flex flex-col items-center text-center mt-2 mb-4 border-b border-slate-100 pb-4">
+                <img id="det-img" src="" class="w-20 h-20 rounded-full object-cover border-2 border-emerald-100 shadow-sm mb-3 bg-slate-100">
+                <h3 id="det-name" class="font-bold text-slate-800 text-lg leading-tight">ชื่อ - นามสกุล</h3>
+                <p id="det-pos" class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 mt-1.5"></p>
+            </div>
+            
+            <div class="space-y-2.5 text-[11px]">
+                <div class="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
+                    <span class="text-slate-500 font-bold flex items-center gap-1.5"><i data-lucide="building-2" class="w-3.5 h-3.5 text-emerald-500"></i> บริษัท:</span> 
+                    <strong id="det-comp" class="text-slate-700 truncate max-w-[150px]"></strong>
+                </div>
+                <div class="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
+                    <span class="text-slate-500 font-bold flex items-center gap-1.5"><i data-lucide="folder-tree" class="w-3.5 h-3.5 text-blue-500"></i> แผนก:</span> 
+                    <strong id="det-dept" class="text-slate-700 truncate max-w-[150px]"></strong>
+                </div>
+                <div class="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
+                    <span class="text-slate-500 font-bold flex items-center gap-1.5"><i data-lucide="phone" class="w-3.5 h-3.5 text-amber-500"></i> เบอร์โทร:</span> 
+                    <strong id="det-phone" class="text-slate-700"></strong>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. Firebase Setup & Global State
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyArJLTChk1lyzfTph6ELTdzKIdb4sQ_ybc",
+            authDomain: "maersk-mcl-v2.firebaseapp.com",
+            projectId: "maersk-mcl-v2",
+            storageBucket: "maersk-mcl-v2.firebasestorage.app",
+            messagingSenderId: "447590679734",
+            appId: "1:447590679734:web:f6881338981f9ae86bd217"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const safetyUid = urlParams.get('uid') || localStorage.getItem('myAppUserId');
+        
+        let masterUsers = {};
+        let currentLogs = [];
+        let unsubscribeLogs = null;
+
+        // Set วันที่ปัจจุบันเริ่มต้น
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('log-start-date').value = today;
+        document.getElementById('log-end-date').value = today;
+        document.getElementById('exportStartDate').value = today;
+        document.getElementById('exportEndDate').value = today;
+
+        // ==========================================
+        // 2. Initialization
+        // ==========================================
+        async function initSafetyPanel() {
+            if (!safetyUid) {
+                window.location.replace("./index.html");
+                return;
+            }
+
+            try {
+                const userDoc = await db.collection("users").doc(safetyUid).get();
+                if (!userDoc.exists) throw new Error("ไม่พบข้อมูลบัญชีของคุณ");
+                
+                const userData = userDoc.data();
+                if (userData.role !== "safety" && userData.role !== "superuser") {
+                    document.getElementById('global-loading').style.display = "none";
+                    document.getElementById('no-access-screen').classList.replace("hidden", "flex");
+                    return;
+                }
+                
+                await loadMasterData();
+                loadDataForDate(); 
+
+                document.getElementById('global-loading').style.display = "none";
+                lucide.createIcons();
+
+            } catch (error) {
+                document.getElementById('loading-text').innerText = `ข้อผิดพลาด: ${error.message}`;
+            }
+        }
+
+        // ดึงข้อมูลบริษัท แผนก ตำแหน่ง เพื่อเก็บไว้ในหน่วยความจำ
+        async function loadMasterData() {
+            const [compSnap, deptSnap, posSnap, userSnap] = await Promise.all([
+                db.collection("companies").get(),
+                db.collection("departments").get(),
+                db.collection("positions").get(),
+                db.collection("users").where("role", "==", "visitor").get()
+            ]);
+
+            let comps = {}; compSnap.forEach(d => comps[d.id] = d.data().name);
+            let depts = {}; deptSnap.forEach(d => depts[d.id] = d.data().name);
+            let pos = {}; posSnap.forEach(d => pos[d.id] = d.data().name);
+            
+            userSnap.forEach(doc => {
+                const u = doc.data();
+                masterUsers[doc.id] = {
+                    name: u.fullname,
+                    company: comps[u.companyId] || '-',
+                    dept: depts[u.departmentId] || '-',
+                    position: pos[u.positionId] || '-',
+                    phone: u.phone || '-',
+                    vehicle: u.vehicle || 'ไม่มี',
+                    photoUrl: u.photoUrl || 'https://via.placeholder.com/150'
+                };
+            });
+        }
+
+        // ==========================================
+        // 3. Core Functions (Load & Render)
+        // ==========================================
+        window.resetToToday = function() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('log-start-date').value = today;
+            document.getElementById('log-end-date').value = today;
+            loadDataForDate();
+        }
+
+        window.loadDataForDate = function() {
+            const startDate = document.getElementById('log-start-date').value;
+            const endDate = document.getElementById('log-end-date').value;
+            
+            if (!startDate || !endDate) return;
+
+            if (unsubscribeLogs) unsubscribeLogs();
+
+            unsubscribeLogs = db.collection("daily_records")
+                .where("date", ">=", startDate)
+                .where("date", "<=", endDate)
+                .onSnapshot(snap => {
+                    currentLogs = [];
+                    snap.forEach(doc => currentLogs.push(doc.data()));
+                    
+                    // เรียงตามวันที่ (ใหม่สุดขึ้นก่อน) และเวลาเข้า (ใหม่สุดขึ้นก่อน)
+                    currentLogs.sort((a, b) => {
+                        if (a.date !== b.date) return (b.date || "").localeCompare(a.date || "");
+                        return (b.scanInTime || "").localeCompare(a.scanInTime || ""); 
+                    });
+                    
+                    renderLogs();
+                });
+        }
+
+        function renderLogs() {
+            let countIn = 0, countOut = 0, countRemain = 0;
+            const listEl = document.getElementById('logs-list');
+            listEl.innerHTML = '';
+
+            if (currentLogs.length === 0) {
+                listEl.innerHTML = '<div class="text-center py-8 text-slate-400 text-xs border border-dashed border-slate-200 rounded-xl mt-2 bg-white">ไม่มีประวัติการเข้าพื้นที่ในช่วงวันที่เลือก</div>';
+            } else {
+                currentLogs.forEach(log => {
+                    countIn++;
+                    const hasScannedOut = !!log.scanOutTime;
+                    if (hasScannedOut) countOut++; else countRemain++;
+
+                    const u = masterUsers[log.uid] || { name: 'ไม่ทราบชื่อ', company: '-', dept: '-', vehicle: '-' };
+                    const statusBorder = hasScannedOut ? 'border-l-4 border-l-amber-400' : 'border-l-4 border-l-blue-400';
+                    const outTimeHtml = hasScannedOut 
+                        ? `<span class="text-amber-600 font-bold bg-amber-50 px-1.5 py-0.5 rounded">OUT: ${log.scanOutTime}</span>` 
+                        : `<span class="text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded animate-pulse">ยังไม่ออก</span>`;
+
+                    // ซ่อนรายละเอียด และให้คลิกดูได้ ห้ามแสดงเลข ปชช
+                    listEl.innerHTML += `
+                        <div onclick="showLogDetail('${log.uid}')" class="bg-white p-2.5 rounded-xl border border-slate-100 shadow-[0_2px_8px_rgba(0,0,0,0.04)] flex justify-between items-center cursor-pointer active:scale-[0.98] transition-transform ${statusBorder}">
+                            <div class="min-w-0 pr-2">
+                                <h4 class="font-bold text-slate-800 text-xs truncate leading-tight">${u.name}</h4>
+                                <p class="text-[9px] text-slate-500 mt-0.5 truncate">${u.company} | แผนก: ${u.dept}</p>
+                                <p class="text-[9px] text-indigo-500 font-medium truncate mt-0.5"><i data-lucide="car" class="w-3 h-3 inline mb-0.5"></i> ทะเบียนรถ: <span class="font-bold">${u.vehicle}</span></p>
+                            </div>
+                            <div class="text-right text-[10px] shrink-0 space-y-1">
+                                <div class="text-slate-500 font-bold mb-1">${log.date}</div>
+                                <div class="text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded inline-block w-full">IN: ${log.scanInTime || '-'}</div>
+                                <div class="inline-block w-full">${outTimeHtml}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            document.getElementById('stat-in').innerText = countIn;
+            document.getElementById('stat-out').innerText = countOut;
+            document.getElementById('stat-remain').innerText = countRemain;
+            
+            const remainEl = document.getElementById('stat-remain');
+            if (countRemain > 0) {
+                remainEl.classList.replace('text-blue-600', 'text-rose-600');
+                remainEl.parentElement.classList.replace('border-blue-500', 'border-rose-500');
+            } else {
+                remainEl.classList.replace('text-rose-600', 'text-blue-600');
+                remainEl.parentElement.classList.replace('border-rose-500', 'border-blue-500');
+            }
+            lucide.createIcons();
+        }
+
+        // ==========================================
+        // Modal Details
+        // ==========================================
+        window.showLogDetail = function(uid) {
+            const u = masterUsers[uid];
+            if(!u) return;
+
+            document.getElementById('det-img').src = u.photoUrl;
+            document.getElementById('det-name').innerText = u.name;
+            document.getElementById('det-pos').innerText = u.position;
+            document.getElementById('det-comp').innerText = u.company;
+            document.getElementById('det-dept').innerText = u.dept;
+            document.getElementById('det-phone').innerText = u.phone;
+            
+            document.getElementById('detail-modal').classList.add('active');
+        }
+
+        window.closeModal = function(id) {
+            document.getElementById(id).classList.remove('active');
+        }
+
+        // ==========================================
+        // 4. Export CSV & UI
+        // ==========================================
+        window.exportCSV = async function() {
+            const start = document.getElementById('exportStartDate').value;
+            const end = document.getElementById('exportEndDate').value;
+            
+            if(!start || !end) return Swal.fire('ข้อมูลไม่ครบ', 'กรุณาเลือกวันที่เริ่มต้นและสิ้นสุด', 'warning');
+            
+            Swal.fire({ title: 'กำลังดึงข้อมูล...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            
+            try {
+                const snap = await db.collection("daily_records")
+                                    .where("date", ">=", start)
+                                    .where("date", "<=", end)
+                                    .get();
+                                    
+                if (snap.empty) {
+                    return Swal.fire('ไม่มีข้อมูล', 'ไม่พบการเข้า-ออกในช่วงเวลาที่เลือก', 'info');
+                }
+
+                let records = [];
+                snap.forEach(doc => records.push(doc.data()));
+                // เรียงตามวันที่ และเวลาเข้า
+                records.sort((a,b) => {
+                    if (a.date !== b.date) return a.date.localeCompare(b.date);
+                    return (a.scanInTime||"").localeCompare(b.scanInTime||"");
+                });
+
+                let csv = "\uFEFFวันที่,ชื่อ-นามสกุล,บริษัท,แผนก,ทะเบียนรถ,เวลาเข้า (IN),เวลาออก (OUT)\n"; 
+                
+                records.forEach(log => {
+                    const u = masterUsers[log.uid] || { name: '-', company: '-', dept: '-', vehicle: '-' };
+                    csv += `"${log.date}","${u.name}","${u.company}","${u.dept}","${u.vehicle}","${log.scanInTime || '-'}","${log.scanOutTime || '-'}"\n`;
+                });
+                
+                const link = document.createElement("a"); 
+                link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })); 
+                link.download = `Safety_Export_${start}_to_${end}.csv`; 
+                link.click();
+
+                Swal.fire({ icon: 'success', title: 'ดาวน์โหลดสำเร็จ', timer: 1500, showConfirmButton: false });
+            } catch(e) {
+                Swal.fire('Error', e.message, 'error');
+            }
+        };
+
+        window.switchTab = function(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            ['logs', 'export'].forEach(t => {
+                const btn = document.getElementById('nav-' + t);
+                if(btn) {
+                    btn.classList.remove('text-emerald-600');
+                    btn.classList.add('text-slate-400');
+                }
+            });
+
+            document.getElementById('tab-' + tabId).classList.add('active');
+            const activeBtn = document.getElementById('nav-' + tabId);
+            if(activeBtn) {
+                activeBtn.classList.remove('text-slate-400');
+                activeBtn.classList.add('text-emerald-600');
+            }
+        }
+
+        window.logout = function() {
+            localStorage.removeItem("myAppUserId");
+            localStorage.removeItem("myAppRole");
+            window.location.replace("./index.html");
+        }
+
+        // เริ่มระบบ
+        initSafetyPanel();
+
+    </script>
+</body>
+</html>

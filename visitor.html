@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ลงทะเบียนพนักงานใหม่</title>
+    
+    <!-- เรียกใช้ Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore-compat.js"></script>
+
+    <!-- เรียกใช้ Library บีบอัดรูปภาพ -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.1/dist/browser-image-compression.js"></script>
+
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: sans-serif; background: #f4f7f6; margin: 0; padding: 20px; }
+        .container { max-width: 400px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { text-align: center; color: #333; margin-top: 0; }
+        
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #555; font-weight: bold; font-size: 14px; }
+        input[type="text"], input[type="tel"], select { 
+            width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 5px; font-size: 16px; 
+        }
+        
+        .photo-upload { text-align: center; margin-bottom: 20px; border: 2px dashed #3498db; padding: 20px; border-radius: 5px; }
+        #preview { width: 150px; height: 150px; border-radius: 50%; object-fit: cover; display: none; margin: 10px auto; border: 3px solid #00b900; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        input[type="file"] { display: none; }
+        
+        /* สไตล์สำหรับปุ่มถ่ายรูปและเลือกรูป */
+        .btn-upload-group { display: flex; gap: 10px; justify-content: center; }
+        .btn-upload { background: #3498db; color: white; padding: 10px 15px; border-radius: 5px; cursor: pointer; flex: 1; font-weight: bold; font-size: 14px; }
+        .btn-upload-gallery { background: #7f8c8d; }
+        
+        .btn-submit { width: 100%; padding: 15px; background: #00b900; color: white; border: none; border-radius: 5px; font-size: 18px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        .btn-submit:disabled { background: #ccc; cursor: not-allowed; }
+        
+        #loading { display: none; text-align: center; margin-top: 15px; font-weight: bold; padding: 15px; border-radius: 5px; line-height: 1.5;}
+        .loading-process { background-color: #e8f4f8; color: #2980b9; border: 1px solid #3498db; }
+        .loading-error { background-color: #fdeaea; color: #c0392b; border: 1px solid #c0392b; }
+        
+        /* สไตล์สำหรับหน้า PDPA Consent */
+        .consent-box { background: #f8f9fa; border: 1px solid #ddd; padding: 15px; border-radius: 5px; font-size: 13px; line-height: 1.6; color: #444; max-height: 250px; overflow-y: auto; margin-bottom: 15px; text-align: left; }
+        .consent-checkbox { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 20px; font-size: 14px; cursor: pointer; color: #333; font-weight: bold; }
+        .consent-checkbox input { margin-top: 3px; transform: scale(1.3); cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<!-- หน้าต่างข้อตกลง PDPA -->
+<div class="container" id="consentContainer">
+    <h2 style="color: #2980b9;">ข้อตกลงและเงื่อนไข (PDPA)</h2>
+    <div class="consent-box">
+        <strong>ข้อความยินยอมการเก็บและใช้ข้อมูลส่วนบุคคล (PDPA Consent)</strong><br><br>
+        เพื่อดำเนินการสมัครงาน บริษัทฯ จำเป็นต้องเก็บ รวบรวม ใช้ และเปิดเผยข้อมูลส่วนบุคคลของท่าน เช่น ชื่อ–นามสกุล ข้อมูลบัตรประชาชน ข้อมูลการติดต่อ เป็นต้น  เพื่อวัตถุประสงค์ในการพิจารณาคัดเลือกและติดต่อสื่อสารเกี่ยวกับตำแหน่งงานที่ท่านสมัคร รวมถึงการจัดเก็บไว้เพื่ออ้างอิงในอนาคตตามระยะเวลาที่เหมาะสม<br><br>
+        บริษัทฯจะดำเนินการตามพระราชบัญญัติคุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562 โดยจะไม่เปิดเผยข้อมูลของท่านต่อบุคคลภายนอก เว้นแต่เป็นไปตามที่กฎหมายกำหนด หรือเพื่อประโยชน์ในการดำเนินการสมัครงานตามที่กล่าวข้างต้น<br><br>
+        หากท่านกดยืนยันเพื่อเข้าสู่ขั้นตอนการสมัครงาน ถือว่าท่านได้อ่านและยินยอมให้บริษัทเก็บ รวบรวม ใช้ และเปิดเผยข้อมูลส่วนบุคคลตามวัตถุประสงค์ที่ระบุไว้ข้างต้นแล้ว
+    </div>
+    <label class="consent-checkbox">
+        <input type="checkbox" id="acceptCheckbox">
+        <span>ฉันได้อ่านและยอมรับเงื่อนไขการเก็บรวบรวมและใช้ข้อมูลส่วนบุคคล (PDPA) ตามข้อความข้างต้น</span>
+    </label>
+    <button class="btn-submit" id="btnContinue" disabled style="background-color: #2980b9;">ดำเนินการต่อเพื่อลงทะเบียน</button>
+</div>
+
+<!-- ฟอร์มลงทะเบียน (จะถูกซ่อนไว้ตอนแรก) -->
+<div class="container" id="formContainer" style="display: none;">
+    <h2>ลงทะเบียนพนักงาน</h2>
+    <form id="registerForm">
+        
+        <div class="photo-upload">
+            <div class="btn-upload-group">
+                <!-- แยกปุ่มถ่ายรูป (บังคับเปิดกล้อง) และ ปุ่มเลือกรูป (เปิดอัลบั้ม) สำหรับ Android LINE -->
+                <label class="btn-upload" for="photoInputCamera">📸 ถ่ายรูป</label>
+                <label class="btn-upload btn-upload-gallery" for="photoInputGallery">🖼️ เลือกรูปจากเครื่อง</label>
+            </div>
+            
+            <input type="file" id="photoInputCamera" accept="image/*" capture="environment">
+            <input type="file" id="photoInputGallery" accept="image/*">
+            
+            <img id="preview" alt="ภาพตัวอย่าง">
+            <p id="fileSizeInfo" style="font-size: 12px; color: #888; margin-top: 10px;">กรุณาถ่ายรูปหรือเลือกรูปภาพ</p>
+        </div>
+
+        <div class="form-group">
+            <label>ชื่อ-นามสกุล *</label>
+            <input type="text" id="fullname" required placeholder="นาย สมชาย ใจดี">
+        </div>
+
+        <div class="form-group">
+            <label>เลขบัตรประชาชน 13 หลัก *</label>
+            <input type="tel" id="idCard" pattern="\d{13}" maxlength="13" required placeholder="1234567890123" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');">
+        </div>
+
+        <div class="form-group">
+            <label>เบอร์โทรศัพท์ 10 หลัก *</label>
+            <input type="tel" id="phone" pattern="\d{10}" maxlength="10" required placeholder="0812345678" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');">
+        </div>
+
+        <div class="form-group">
+            <label>ทะเบียนรถ (ถ้ามี)</label>
+            <input type="text" id="vehicle" placeholder="เช่น กข 1234 กทม">
+        </div>
+
+        <div class="form-group">
+            <label>บริษัทต้นสังกัด *</label>
+            <select id="company" required>
+                <option value="">-- กำลังโหลดรายชื่อบริษัท --</option>
+            </select>
+        </div>
+
+        <button type="submit" class="btn-submit" id="submitBtn">บันทึกข้อมูล</button>
+        <div id="loading" class="loading-process">รอการประมวลผล...</div>
+    </form>
+</div>
+
+<script>
+    // --- ระบบ PDPA Consent ---
+    document.getElementById("acceptCheckbox").addEventListener("change", function() {
+        document.getElementById("btnContinue").disabled = !this.checked;
+    });
+
+    document.getElementById("btnContinue").addEventListener("click", function() {
+        document.getElementById("consentContainer").style.display = "none";
+        document.getElementById("formContainer").style.display = "block";
+    });
+
+    // 1. ตั้งค่า Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyArJLTChk1lyzfTph6ELTdzKIdb4sQ_ybc",
+      authDomain: "maersk-mcl-v2.firebaseapp.com",
+      projectId: "maersk-mcl-v2",
+      storageBucket: "maersk-mcl-v2.firebasestorage.app",
+      messagingSenderId: "447590679734",
+      appId: "1:447590679734:web:f6881338981f9ae86bd217",
+      measurementId: "G-9CPJJVL2G6"
+    };
+    
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    
+    const db = firebase.firestore();
+
+    // 2. ดึง LINE ID จาก URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const uid = urlParams.get('uid');
+
+    if(!uid) {
+        alert("⚠️ ไม่พบข้อมูล LINE ID!\nกรุณาเข้าสู่ระบบผ่านหน้าแรก (index.html)");
+        document.getElementById("submitBtn").disabled = true;
+    }
+
+    let finalBase64Image = null;
+
+    // 3. โหลดรายชื่อบริษัท
+    async function loadCompanies() {
+        const companySelect = document.getElementById("company");
+        try {
+            const snapshot = await db.collection("companies").get();
+            companySelect.innerHTML = '<option value="">-- เลือกบริษัท --</option>'; 
+            
+            if (snapshot.empty) {
+                companySelect.innerHTML += '<option value="DummyCompany">บริษัททดสอบ (ยังไม่มีในฐานข้อมูล)</option>';
+                return;
+            }
+
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                companySelect.innerHTML += `<option value="${doc.id}">${data.name}</option>`;
+            });
+        } catch (error) {
+            console.error("Error loading companies:", error);
+            companySelect.innerHTML = '<option value="">-- โหลดข้อมูลล้มเหลว --</option>';
+            document.getElementById("loading").style.display = "block";
+            document.getElementById("loading").className = "loading-error";
+            document.getElementById("loading").innerHTML = "❌ โหลดรายชื่อบริษัทไม่สำเร็จ! โปรดตรวจสอบ Firestore Rules";
+        }
+    }
+    loadCompanies();
+
+    // 4. ฟังก์ชันหลักสำหรับจัดการรูปภาพ (ครอบรูป 1:1 + โชว์พรีวิว + บีบอัด)
+    async function processImage(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        try {
+            document.getElementById("fileSizeInfo").innerText = "กำลังประมวลผลและครอบรูปภาพ 1:1...";
+            
+            // สเต็ป A: บีบอัดและปรับทิศทางรูป (EXIF) ให้ตั้งตรงก่อนครอบ
+            const options = {
+                maxSizeMB: 1, 
+                maxWidthOrHeight: 800, 
+                // 🚀 แก้ปัญหา LINE Android: ปิด WebWorker เพื่อป้องกัน Error
+                useWebWorker: false 
+            };
+            const preCompressedFile = await imageCompression(file, options);
+
+            // สเต็ป B: นำรูปมาวาดลง Canvas เพื่อครอบเป็นสี่เหลี่ยมจัตุรัส 1:1 ตรงกลาง
+            const img = new Image();
+            img.src = URL.createObjectURL(preCompressedFile);
+            
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                const targetSize = 400; // ล็อกขนาดรูปไว้ที่ 400x400 px
+                canvas.width = targetSize;
+                canvas.height = targetSize;
+                const ctx = canvas.getContext('2d');
+
+                // หาด้านที่สั้นที่สุดเพื่อตัดแบบ Center Crop
+                const minSize = Math.min(img.width, img.height);
+                const sx = (img.width - minSize) / 2;
+                const sy = (img.height - minSize) / 2;
+
+                // วาดรูปลง Canvas
+                ctx.drawImage(img, sx, sy, minSize, minSize, 0, 0, targetSize, targetSize);
+
+                // สเต็ป C: แปลงกลับเป็นข้อความ Base64 พร้อมบีบอัดให้เล็กลง (คุณภาพ 70%)
+                finalBase64Image = canvas.toDataURL('image/jpeg', 0.7);
+
+                // แสดงรูปตัวอย่าง (ในกรอบวงกลม)
+                document.getElementById("preview").src = finalBase64Image;
+                document.getElementById("preview").style.display = "block";
+                
+                // คำนวณขนาดไฟล์คร่าวๆ
+                const sizeKB = ((finalBase64Image.length * 0.75) / 1024).toFixed(1);
+                document.getElementById("fileSizeInfo").innerText = `✅ พร้อมใช้งาน (ขนาด: ${sizeKB} KB)`;
+                document.getElementById("fileSizeInfo").style.color = "#27ae60";
+                
+                URL.revokeObjectURL(img.src); // คืนหน่วยความจำมือถือ
+            };
+
+        } catch (error) {
+            console.error("Error processing image:", error);
+            alert("เกิดข้อผิดพลาดในการประมวลผลรูปภาพบนอุปกรณ์นี้ กรุณาลองใหม่อีกครั้ง");
+        }
+    }
+
+    // ผูกเหตุการณ์ (Event Listener) ให้กับปุ่มทั้ง 2 ปุ่ม
+    document.getElementById("photoInputCamera").addEventListener("change", processImage);
+    document.getElementById("photoInputGallery").addEventListener("change", processImage);
+
+    // 5. เมื่อกดปุ่ม "บันทึกข้อมูล"
+    document.getElementById("registerForm").addEventListener("submit", async function(e) {
+        e.preventDefault(); 
+
+        if (!finalBase64Image) {
+            alert("กรุณาถ่ายรูปหรืออัปโหลดรูปภาพด้วยครับ");
+            return;
+        }
+
+        if (!uid) {
+            alert("ข้อผิดพลาด: ไม่พบรหัสผู้ใช้งาน (UID) กรุณากลับไปเข้าสู่ระบบใหม่");
+            return;
+        }
+
+        const btnSubmit = document.getElementById("submitBtn");
+        const loadingText = document.getElementById("loading");
+
+        btnSubmit.disabled = true;
+        loadingText.className = "loading-process";
+        loadingText.style.display = "block";
+        
+        try {
+            // ----- ขั้นตอนที่ 1: เตรียมข้อมูลรูปภาพ -----
+            loadingText.innerHTML = "⏳ ขั้นตอนที่ 1/2: กำลังเตรียมข้อมูลรูปภาพ...";
+
+            // ----- ขั้นตอนที่ 2: บันทึกข้อมูลลงฐานข้อมูล Firestore รวดเดียว -----
+            loadingText.innerHTML = "⏳ ขั้นตอนที่ 2/2: กำลังบันทึกประวัติพนักงาน...";
+            
+            const userData = {
+                uid: uid,
+                fullname: document.getElementById("fullname").value,
+                idCard: document.getElementById("idCard").value,
+                phone: document.getElementById("phone").value,
+                vehicle: document.getElementById("vehicle").value || "-",
+                companyId: document.getElementById("company").value,
+                photoUrl: finalBase64Image, // ใช้ Base64 ที่ครอบ 1:1 ไว้แล้ว
+                role: "visitor",
+                status: "pending", 
+                registeredAt: firebase.firestore.FieldValue.serverTimestamp() 
+            };
+
+            await db.collection("users").doc(uid).set(userData);
+
+            // ----- ขั้นตอนที่ 3: เสร็จสมบูรณ์ -----
+            loadingText.innerHTML = "✅ ลงทะเบียนสำเร็จ! กำลังพาท่านไปหน้าถัดไป...";
+            loadingText.style.backgroundColor = "#d4edda";
+            loadingText.style.color = "#155724";
+            loadingText.style.borderColor = "#c3e6cb";
+            
+            setTimeout(() => {
+                window.location.href = "index.html";
+            }, 1500);
+
+        } catch (error) {
+            console.error("Error saving data:", error);
+            loadingText.className = "loading-error";
+            loadingText.innerHTML = `❌ เกิดข้อผิดพลาด: ${error.message} <br><br><small>ข้อแนะนำ: ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</small>`;
+            btnSubmit.disabled = false;
+        }
+    });
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>My Badge - บัตรพนักงาน</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Kanit', sans-serif; background: #0f172a; margin: 0; min-height: 100dvh; display: flex; justify-content: center; }
+        .app-container { width: 100%; max-width: 420px; background: #f1f5f9; position: relative; display: flex; flex-direction: column; min-height: 100dvh; box-shadow: 0 0 40px rgba(0,0,0,0.4); }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+
+        /* ===== BADGE CARD ===== */
+        .badge-wrap { background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%); padding: 24px 20px 30px; position: relative; overflow: hidden; }
+        .badge-wrap::before { content: ''; position: absolute; top: -40px; right: -40px; width: 180px; height: 180px; background: radial-gradient(circle, rgba(99,102,241,0.3) 0%, transparent 70%); border-radius: 50%; }
+        .badge-wrap::after { content: ''; position: absolute; bottom: -20px; left: -20px; width: 120px; height: 120px; background: radial-gradient(circle, rgba(16,185,129,0.2) 0%, transparent 70%); border-radius: 50%; }
+
+        .badge-inner { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 20px; backdrop-filter: blur(10px); position: relative; z-index: 1; }
+
+        .profile-ring { width: 80px; height: 80px; border-radius: 50%; border: 3px solid rgba(99,102,241,0.6); padding: 3px; background: linear-gradient(135deg, #6366f1, #10b981); }
+        .profile-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: #334155; }
+
+        .status-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 99px; font-size: 10px; font-weight: 700; }
+        .status-approved { background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
+        .status-pending { background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+        .status-banned { background: rgba(239,68,68,0.2); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+
+        .qr-box { background: white; border-radius: 16px; padding: 16px; display: flex; justify-content: center; align-items: center; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+
+        /* ===== TIMECLOCK PANEL ===== */
+        .clock-panel { background: white; border-radius: 20px; margin: 0 12px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; }
+        .clock-badge { display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; color: #3b82f6; border: 1px solid #bfdbfe; border-radius: 8px; padding: 4px 10px; font-size: 10px; font-weight: 700; }
+
+        .time-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .time-input-wrap { background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; transition: all 0.2s; }
+        .time-input-wrap:focus-within { border-color: #6366f1; background: white; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+        .time-input-wrap label { display: block; font-size: 9px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        .time-input-wrap input { width: 100%; border: none; background: transparent; font-size: 16px; font-weight: 700; color: #1e293b; font-family: 'Kanit', monospace; outline: none; }
+
+        .ot-section { background: linear-gradient(135deg, #fef3c7, #fde68a); border: 1px solid #fcd34d; border-radius: 14px; padding: 12px 14px; }
+
+        .btn-confirm { width: 100%; background: linear-gradient(135deg, #6366f1, #4f46e5); color: white; border: none; border-radius: 14px; padding: 14px; font-size: 15px; font-weight: 700; font-family: 'Kanit', sans-serif; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; box-shadow: 0 4px 20px rgba(99,102,241,0.4); }
+        .btn-confirm:active { transform: scale(0.97); }
+        .btn-confirm:disabled { background: #cbd5e1; box-shadow: none; cursor: not-allowed; }
+
+        /* ===== HISTORY ===== */
+        .history-card { background: white; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+        .history-card-header { padding: 12px 14px 10px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
+        .history-card-body { padding: 12px 14px; }
+
+        .badge-eval { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 6px; font-size: 9px; font-weight: 700; }
+        .badge-eval-ok { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+        .badge-eval-wait { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+        .badge-eval-absent { background: #fff1f2; color: #be123c; border: 1px solid #fecdd3; }
+
+        /* ===== BOTTOM NAV ===== */
+        .bottom-nav { background: white; border-top: 1px solid #f1f5f9; display: flex; padding: 8px 0 max(8px, env(safe-area-inset-bottom)); }
+        .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6px 4px; gap: 3px; font-size: 9px; font-weight: 700; color: #94a3b8; transition: color 0.2s; border: none; background: transparent; cursor: pointer; }
+        .nav-btn.active { color: #6366f1; }
+        .nav-btn i { width: 22px; height: 22px; }
+
+        /* ===== TABS ===== */
+        .tab-view { display: none; flex-direction: column; }
+        .tab-view.active { display: flex; }
+
+        /* ===== LOADING ===== */
+        #global-loading { position: fixed; inset: 0; background: #f1f5f9; z-index: 999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ===== ANIMATIONS ===== */
+        @keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        .slide-up { animation: slideUp 0.3s ease-out; }
+
+        /* Working state pulsing dot */
+        .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; animation: pulse-anim 2s infinite; }
+        @keyframes pulse-anim { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.4); } }
+    </style>
+</head>
+<body>
+
+<div id="global-loading">
+    <div style="width:44px;height:44px;border:4px solid #e2e8f0;border-top-color:#6366f1;border-radius:50%;" class="spin"></div>
+    <p style="font-family:'Kanit',sans-serif;color:#64748b;font-weight:600;font-size:14px;" id="load-text">กำลังโหลดข้อมูล...</p>
+</div>
+
+<div class="app-container">
+
+    <!-- ===== TAB: บัตร / QR ===== -->
+    <div id="view-badge" class="tab-view active flex-col" style="flex:1;">
+
+        <!-- Badge Card -->
+        <div class="badge-wrap">
+            <div class="badge-inner slide-up">
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="profile-ring shrink-0">
+                        <img id="b-photo" class="profile-img" src="" alt="">
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h2 id="b-name" class="text-white font-bold text-base leading-tight truncate"></h2>
+                        <p id="b-company" class="text-slate-400 text-[11px] mt-0.5 truncate"></p>
+                        <p id="b-dept" class="text-slate-400 text-[11px] truncate"></p>
+                        <div id="b-status" class="status-pill mt-1.5"></div>
+                    </div>
+                </div>
+
+                <!-- QR Section (แสดงเมื่อ approved และไม่ได้กำลังทำงาน) -->
+                <div id="qr-section">
+                    <p class="text-slate-500 text-[10px] text-center mb-3 font-medium">QR Code สำหรับสแกนเข้า–ออกพื้นที่</p>
+                    <div class="qr-box mx-auto" style="width:fit-content;">
+                        <div id="qrcode"></div>
+                    </div>
+                    <p class="text-slate-600 text-[9px] text-center mt-3 font-mono opacity-60" id="b-uid-display"></p>
+                </div>
+
+                <!-- No-QR Message -->
+                <div id="no-qr-section" class="hidden text-center py-4">
+                    <div id="no-qr-msg" class="text-sm font-medium text-slate-400"></div>
+                </div>
+
+                <!-- Working State (แสดงเมื่อหัวหน้า "รับเข้าทำงาน" แล้ว) -->
+                <div id="working-section" class="hidden">
+                    <div class="flex items-center justify-center gap-2 bg-emerald-900/40 border border-emerald-500/30 rounded-xl py-3 px-4">
+                        <div class="pulse-dot"></div>
+                        <p class="text-emerald-300 font-bold text-sm">กำลังปฏิบัติงาน — กรุณาลงเวลาในแท็บถัดไป</p>
+                    </div>
+                    <p class="text-slate-500 text-[10px] text-center mt-2">QR Code จะปรากฏอีกครั้งหลังจากยืนยันเวลาเสร็จแล้ว</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ข้อมูลเพิ่มเติม -->
+        <div class="p-3 space-y-2 flex-1 overflow-y-auto hide-scroll">
+            <div id="today-status-box" class="bg-white rounded-2xl border border-slate-200 p-3 shadow-sm hidden">
+                <p class="text-[10px] font-bold text-slate-500 uppercase mb-2">สถานะวันนี้</p>
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="text-[11px] text-slate-600">เข้างาน (สแกน): <strong id="td-in" class="text-emerald-600">-</strong></p>
+                        <p class="text-[11px] text-slate-600">ออกงาน (สแกน): <strong id="td-out" class="text-amber-600">-</strong></p>
+                    </div>
+                    <div id="td-status-badge" class="text-right"></div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-200 p-3 shadow-sm">
+                <p class="text-[10px] font-bold text-slate-500 uppercase mb-2">ข้อมูลบัตร</p>
+                <div class="space-y-1.5">
+                    <div class="flex justify-between text-[11px]">
+                        <span class="text-slate-500">ตำแหน่ง</span>
+                        <span id="b-position" class="font-bold text-slate-700">-</span>
+                    </div>
+                    <div class="flex justify-between text-[11px]">
+                        <span class="text-slate-500">เบอร์โทร</span>
+                        <span id="b-phone" class="font-bold text-slate-700 font-mono">-</span>
+                    </div>
+                    <div class="flex justify-between text-[11px]">
+                        <span class="text-slate-500">ทะเบียนรถ</span>
+                        <span id="b-vehicle" class="font-bold text-slate-700">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== TAB: บันทึกเวลา ===== -->
+    <div id="view-timeclock" class="tab-view flex-col">
+        <div class="p-3 space-y-3 flex-1 overflow-y-auto hide-scroll pb-4">
+
+            <!-- Header -->
+            <div class="flex items-center justify-between pt-1">
+                <div>
+                    <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                        <i data-lucide="clock" class="w-4 h-4 text-indigo-500"></i> บันทึกเวลาทำงาน
+                    </h2>
+                    <p id="tc-date" class="text-[10px] text-slate-500 mt-0.5"></p>
+                </div>
+                <div class="clock-badge">
+                    <div class="pulse-dot" style="width:6px;height:6px;"></div>
+                    Real-time
+                </div>
+            </div>
+
+            <!-- No Record State -->
+            <div id="tc-no-record" class="clock-panel text-center py-8">
+                <i data-lucide="clock-x" class="w-12 h-12 text-slate-200 mx-auto mb-3"></i>
+                <p class="text-sm font-bold text-slate-500">ยังไม่มีข้อมูลวันนี้</p>
+                <p class="text-[11px] text-slate-400 mt-1">กรุณารอหัวหน้างานรับเข้าทำงานก่อน</p>
+            </div>
+
+            <!-- Time Form (แสดงเมื่อ status = working) -->
+            <div id="tc-form" class="hidden space-y-3">
+                <div class="clock-panel">
+                    <div class="flex items-center justify-between mb-3">
+                        <p class="text-[11px] font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1">
+                            <i data-lucide="sun" class="w-3.5 h-3.5 text-amber-500"></i> เวลาทำงานปกติ
+                        </p>
+                        <div id="tc-scan-info" class="text-[9px] text-slate-400 font-mono"></div>
+                    </div>
+                    <div class="time-grid">
+                        <div class="time-input-wrap">
+                            <label>⏰ เริ่มงาน</label>
+                            <input type="time" id="tc-start" oninput="markDirty()">
+                        </div>
+                        <div class="time-input-wrap">
+                            <label>🏁 เลิกงาน</label>
+                            <input type="time" id="tc-end" oninput="markDirty()">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- OT Section -->
+                <div class="ot-section">
+                    <p class="text-[11px] font-bold text-amber-800 flex items-center gap-1.5 mb-2">
+                        <i data-lucide="zap" class="w-3.5 h-3.5"></i> โอทีเพิ่มเติม (ถ้ามี)
+                    </p>
+                    <div class="time-grid">
+                        <div class="time-input-wrap" style="background:rgba(255,255,255,0.7);">
+                            <label>⚡ เริ่ม OT</label>
+                            <input type="time" id="tc-ot-start" oninput="markDirty()">
+                        </div>
+                        <div class="time-input-wrap" style="background:rgba(255,255,255,0.7);">
+                            <label>🔚 จบ OT</label>
+                            <input type="time" id="tc-ot-end" oninput="markDirty()">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Confirm Button -->
+                <button class="btn-confirm" id="tc-confirm-btn" onclick="confirmTimeclock()">
+                    <i data-lucide="check-circle" style="width:18px;height:18px;"></i>
+                    ยืนยันเวลาทำงาน
+                </button>
+                <p class="text-[10px] text-slate-400 text-center">หลังยืนยันแล้วสามารถแก้ไขได้ตลอดวัน</p>
+            </div>
+
+            <!-- Done State (แสดงเมื่อ status = evaluated หรือยืนยันไปแล้ว) -->
+            <div id="tc-done" class="hidden">
+                <div class="clock-panel">
+                    <div class="flex items-center gap-3 mb-4 border-b border-slate-100 pb-3">
+                        <div class="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center shrink-0">
+                            <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <p class="font-bold text-sm text-slate-800">บันทึกเวลาแล้ว</p>
+                            <p class="text-[10px] text-slate-500">สามารถแก้ไขได้จนถึงสิ้นวัน</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-center text-[11px]">
+                        <div class="bg-emerald-50 rounded-xl p-2.5 border border-emerald-100">
+                            <p class="text-[9px] text-slate-400 uppercase font-bold">เริ่มงาน</p>
+                            <p id="done-start" class="font-black text-emerald-600 text-base mt-0.5 font-mono">-</p>
+                        </div>
+                        <div class="bg-rose-50 rounded-xl p-2.5 border border-rose-100">
+                            <p class="text-[9px] text-slate-400 uppercase font-bold">เลิกงาน</p>
+                            <p id="done-end" class="font-black text-rose-500 text-base mt-0.5 font-mono">-</p>
+                        </div>
+                        <div class="bg-amber-50 rounded-xl p-2.5 border border-amber-100">
+                            <p class="text-[9px] text-slate-400 uppercase font-bold">เริ่ม OT</p>
+                            <p id="done-ot-start" class="font-black text-amber-600 text-base mt-0.5 font-mono">-</p>
+                        </div>
+                        <div class="bg-amber-50 rounded-xl p-2.5 border border-amber-100">
+                            <p class="text-[9px] text-slate-400 uppercase font-bold">จบ OT</p>
+                            <p id="done-ot-end" class="font-black text-amber-600 text-base mt-0.5 font-mono">-</p>
+                        </div>
+                    </div>
+                    <!-- Rating (ถ้าถูกประเมินแล้ว) -->
+                    <div id="done-rating-box" class="hidden mt-3 bg-indigo-50 rounded-xl p-2.5 border border-indigo-100 text-center">
+                        <p class="text-[9px] text-slate-400 uppercase font-bold mb-1">ผลประเมินจากหัวหน้า</p>
+                        <div id="done-stars" class="flex justify-center gap-1 mb-1"></div>
+                        <p id="done-comment" class="text-[10px] text-slate-600 italic"></p>
+                        <p id="done-bonus" class="text-[11px] font-bold text-emerald-600 mt-1"></p>
+                    </div>
+
+                    <button class="btn-confirm mt-3" style="background:linear-gradient(135deg,#0f766e,#059669);" onclick="editTimeclock()">
+                        <i data-lucide="edit-3" style="width:16px;height:16px;"></i> แก้ไขเวลา
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== TAB: ประวัติ ===== -->
+    <div id="view-history" class="tab-view flex-col">
+        <div class="p-3 space-y-2 flex-1 overflow-y-auto hide-scroll pb-4">
+            <div class="flex items-center justify-between pt-1">
+                <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                    <i data-lucide="calendar-days" class="w-4 h-4 text-indigo-500"></i> ประวัติการทำงาน
+                </h2>
+                <span class="text-[10px] text-slate-400 font-medium">ย้อนหลัง 2 เดือน</span>
+            </div>
+
+            <!-- Summary Card -->
+            <div class="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-4 text-white relative overflow-hidden">
+                <div class="absolute -right-4 -top-4 opacity-10"><i data-lucide="bar-chart-2" style="width:80px;height:80px;"></i></div>
+                <p class="text-[10px] text-indigo-200 uppercase font-bold mb-2 tracking-wide">สรุป 2 เดือนล่าสุด</p>
+                <div class="grid grid-cols-3 gap-2 relative z-10">
+                    <div class="text-center">
+                        <p class="text-2xl font-black" id="hist-total-days">0</p>
+                        <p class="text-[9px] text-indigo-200 font-medium">วันทำงาน</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-2xl font-black text-emerald-300" id="hist-avg-rating">-</p>
+                        <p class="text-[9px] text-indigo-200 font-medium">เฉลี่ย ★</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-2xl font-black text-amber-300" id="hist-total-bonus">0</p>
+                        <p class="text-[9px] text-indigo-200 font-medium">เงินพิเศษ (บ.)</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History List -->
+            <div id="history-list" class="space-y-2 pb-4">
+                <div class="text-center py-10 text-slate-400 text-sm">กำลังโหลดประวัติ...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav shrink-0 relative z-20">
+        <button class="nav-btn active" id="nav-badge" onclick="switchTab('badge')">
+            <i data-lucide="credit-card"></i>
+            <span>บัตรของฉัน</span>
+        </button>
+        <button class="nav-btn" id="nav-timeclock" onclick="switchTab('timeclock')">
+            <i data-lucide="clock"></i>
+            <span>บันทึกเวลา</span>
+            <div id="tc-dot" class="hidden" style="width:6px;height:6px;background:#10b981;border-radius:50%;position:absolute;top:8px;right:calc(50% - 14px);"></div>
+        </button>
+        <button class="nav-btn" id="nav-history" onclick="switchTab('history')">
+            <i data-lucide="history"></i>
+            <span>ประวัติ</span>
+        </button>
+    </nav>
+</div>
+
+<script>
+// ===== Firebase =====
+const firebaseConfig = {
+    apiKey: "AIzaSyArJLTChk1lyzfTph6ELTdzKIdb4sQ_ybc",
+    authDomain: "maersk-mcl-v2.firebaseapp.com",
+    projectId: "maersk-mcl-v2",
+    storageBucket: "maersk-mcl-v2.firebasestorage.app",
+    messagingSenderId: "447590679734",
+    appId: "1:447590679734:web:f6881338981f9ae86bd217"
+};
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// ===== State =====
+const urlParams = new URLSearchParams(window.location.search);
+const uid = urlParams.get('uid') || localStorage.getItem('myAppUserId');
+const today = new Date().toISOString().split('T')[0];
+
+let userData = null;
+let masterData = { companies: {}, depts: {}, positions: {} };
+let todayRecord = null;
+let todayRecordId = null;
+let qrCodeObj = null;
+let isDirty = false;
+let unsubscribeRecord = null;
+
+document.getElementById('tc-date').innerText = `ประจำวันที่ ${new Date().toLocaleDateString('th-TH', {year:'numeric',month:'long',day:'numeric'})}`;
+
+// ===== Init =====
+async function init() {
+    if (!uid) {
+        document.getElementById('load-text').innerText = 'ไม่พบข้อมูล กรุณาเข้าสู่ระบบใหม่';
+        return;
+    }
+    try {
+        // Load master data & user data in parallel
+        const [userSnap, compSnap, deptSnap, posSnap] = await Promise.all([
+            db.collection("users").doc(uid).get(),
+            db.collection("companies").get(),
+            db.collection("departments").get(),
+            db.collection("positions").get()
+        ]);
+
+        compSnap.forEach(d => masterData.companies[d.id] = d.data().name);
+        deptSnap.forEach(d => masterData.depts[d.id] = d.data().name);
+        posSnap.forEach(d => masterData.positions[d.id] = d.data().name);
+
+        if (!userSnap.exists) {
+            document.getElementById('load-text').innerText = 'ไม่พบข้อมูลผู้ใช้';
+            return;
+        }
+        userData = userSnap.data();
+
+        renderBadge();
+        listenToTodayRecord();
+        loadHistory();
+
+        document.getElementById('global-loading').style.display = 'none';
+        lucide.createIcons();
+    } catch (e) {
+        document.getElementById('load-text').innerText = 'เกิดข้อผิดพลาด: ' + e.message;
+    }
+}
+
+// ===== Render Badge =====
+function renderBadge() {
+    const u = userData;
+    document.getElementById('b-photo').src = u.photoUrl || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(u.fullname || 'U') + '&background=6366f1&color=fff&size=200';
+    document.getElementById('b-name').innerText = u.fullname || '-';
+    document.getElementById('b-company').innerText = masterData.companies[u.companyId] || '-';
+    document.getElementById('b-dept').innerText = masterData.depts[u.departmentId] || '-';
+    document.getElementById('b-position').innerText = masterData.positions[u.positionId] || '-';
+    document.getElementById('b-phone').innerText = u.phone || '-';
+    document.getElementById('b-vehicle').innerText = u.vehicle || '-';
+    document.getElementById('b-uid-display').innerText = uid ? uid.substring(0,16) + '...' : '';
+
+    // Status pill
+    const statusEl = document.getElementById('b-status');
+    if (u.status === 'approved') {
+        statusEl.className = 'status-pill status-approved';
+        statusEl.innerHTML = '<i data-lucide="check-circle" style="width:10px;height:10px;"></i> อนุมัติแล้ว';
+    } else if (u.status === 'pending') {
+        statusEl.className = 'status-pill status-pending';
+        statusEl.innerHTML = '<i data-lucide="clock" style="width:10px;height:10px;"></i> รออนุมัติ';
+    } else {
+        statusEl.className = 'status-pill status-banned';
+        statusEl.innerHTML = '<i data-lucide="x-circle" style="width:10px;height:10px;"></i> ระงับสิทธิ์';
+    }
+    lucide.createIcons();
+}
+
+// ===== Render QR =====
+function renderQR() {
+    const qrEl = document.getElementById('qrcode');
+    qrEl.innerHTML = '';
+    if (!qrCodeObj) {
+        qrCodeObj = new QRCode(qrEl, {
+            text: uid,
+            width: 160,
+            height: 160,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.H
+        });
+    }
+}
+
+// ===== Listen Today Record =====
+function listenToTodayRecord() {
+    if (unsubscribeRecord) unsubscribeRecord();
+
+    // Real-time listener for today's record
+    const query = db.collection("daily_records")
+        .where("uid", "==", uid)
+        .where("date", "==", today);
+
+    unsubscribeRecord = query.onSnapshot(snap => {
+        if (!snap.empty) {
+            const doc = snap.docs[0];
+            todayRecordId = doc.id;
+            todayRecord = doc.data();
+        } else {
+            todayRecordId = null;
+            todayRecord = null;
+        }
+        updateBadgeView();
+        updateTimeclockView();
+        lucide.createIcons();
+    });
+}
+
+// ===== Update Badge View based on today record =====
+function updateBadgeView() {
+    const qrSection = document.getElementById('qr-section');
+    const noQrSection = document.getElementById('no-qr-section');
+    const workingSection = document.getElementById('working-section');
+    const todayBox = document.getElementById('today-status-box');
+    const u = userData;
+
+    // Reset
+    qrSection.classList.add('hidden');
+    noQrSection.classList.add('hidden');
+    workingSection.classList.add('hidden');
+
+    if (u.status !== 'approved') {
+        // Not approved
+        noQrSection.classList.remove('hidden');
+        document.getElementById('no-qr-msg').innerText = u.status === 'pending'
+            ? '⏳ กรุณารอฝ่ายบุคคลอนุมัติบัตร'
+            : '❌ บัตรถูกระงับการใช้งาน';
+        return;
+    }
+
+    if (todayRecord && (todayRecord.status === 'working' || todayRecord.status === 'in')) {
+        // กำลังทำงาน — ซ่อน QR แสดง working state
+        // เว้นแต่บันทึกเวลาแล้ว (empStartTime มีค่า)
+        if (todayRecord.empStartTime && todayRecord.empEndTime) {
+            // ยืนยันเวลาแล้ว แสดง QR กลับ
+            qrSection.classList.remove('hidden');
+            renderQR();
+        } else {
+            workingSection.classList.remove('hidden');
+            // แสดง timeclock dot
+            document.getElementById('tc-dot').classList.remove('hidden');
+        }
+    } else {
+        // ปกติ หรือประเมินแล้ว
+        qrSection.classList.remove('hidden');
+        renderQR();
+        document.getElementById('tc-dot').classList.add('hidden');
+    }
+
+    // Today status box
+    if (todayRecord) {
+        todayBox.classList.remove('hidden');
+        document.getElementById('td-in').innerText = todayRecord.scanInTime || '-';
+        document.getElementById('td-out').innerText = todayRecord.scanOutTime || '-';
+
+        const statusMap = {
+            'in': ['⏳ รอหัวหน้ารับ', 'bg-amber-50 text-amber-600 border border-amber-200'],
+            'working': ['🟢 กำลังทำงาน', 'bg-emerald-50 text-emerald-600 border border-emerald-200'],
+            'evaluated': ['✅ ประเมินแล้ว', 'bg-indigo-50 text-indigo-600 border border-indigo-200'],
+            'not_show': ['❌ ไม่มา', 'bg-rose-50 text-rose-600 border border-rose-200'],
+            'out_only': ['↩️ สแกนออกเท่านั้น', 'bg-slate-50 text-slate-600 border border-slate-200']
+        };
+        const [txt, cls] = statusMap[todayRecord.status] || [todayRecord.status, 'bg-slate-50 text-slate-500'];
+        document.getElementById('td-status-badge').innerHTML = `<span class="text-[9px] font-bold px-2 py-1 rounded-lg ${cls}">${txt}</span>`;
+    } else {
+        todayBox.classList.add('hidden');
+    }
+}
+
+// ===== Update Timeclock View =====
+function updateTimeclockView() {
+    const noRecord = document.getElementById('tc-no-record');
+    const form = document.getElementById('tc-form');
+    const done = document.getElementById('tc-done');
+
+    noRecord.classList.add('hidden');
+    form.classList.add('hidden');
+    done.classList.add('hidden');
+
+    if (!todayRecord) {
+        noRecord.classList.remove('hidden');
+        return;
+    }
+
+    const s = todayRecord.status;
+
+    if (s === 'not_show' || s === 'out_only') {
+        noRecord.classList.remove('hidden');
+        document.querySelector('#tc-no-record p.text-sm').innerText = s === 'not_show' ? 'บันทึกว่าไม่มาทำงาน' : 'สแกนออกโดยไม่มีเวลาเข้า';
+        return;
+    }
+
+    if (s === 'in') {
+        // รอหัวหน้ารับ
+        noRecord.classList.remove('hidden');
+        document.querySelector('#tc-no-record p.text-sm').innerText = 'รอหัวหน้างานรับเข้าทำงาน';
+        document.querySelector('#tc-no-record p.text-[11px]').innerText = `สแกน IN เข้ามาแล้ว ${todayRecord.scanInTime || ''} — กรุณารอการอนุมัติ`;
+        return;
+    }
+
+    if (s === 'working' || s === 'evaluated') {
+        // Check if emp already submitted time
+        if (todayRecord.empStartTime || todayRecord.empEndTime) {
+            showDoneState();
+        } else {
+            if (!isDirty) {
+                // Pre-fill with scan times if available
+                document.getElementById('tc-start').value = todayRecord.scanInTime ? convertThaiTimeTo24h(todayRecord.scanInTime) : '';
+                document.getElementById('tc-end').value = todayRecord.scanOutTime ? convertThaiTimeTo24h(todayRecord.scanOutTime) : '';
+                document.getElementById('tc-ot-start').value = todayRecord.otStart || '';
+                document.getElementById('tc-ot-end').value = todayRecord.otEnd || '';
+            }
+            document.getElementById('tc-scan-info').innerText = `รปภ. IN: ${todayRecord.scanInTime || '-'} | OUT: ${todayRecord.scanOutTime || '-'}`;
+            form.classList.remove('hidden');
+        }
+
+        if (s === 'evaluated') {
+            showDoneState();
+        }
+    }
+}
+
+function showDoneState() {
+    document.getElementById('tc-form').classList.add('hidden');
+    document.getElementById('tc-done').classList.remove('hidden');
+
+    const r = todayRecord;
+    document.getElementById('done-start').innerText = r.empStartTime || '-';
+    document.getElementById('done-end').innerText = r.empEndTime || '-';
+    document.getElementById('done-ot-start').innerText = r.otStart || '-';
+    document.getElementById('done-ot-end').innerText = r.otEnd || '-';
+
+    const ratingBox = document.getElementById('done-rating-box');
+    if (r.rating && r.rating > 0) {
+        ratingBox.classList.remove('hidden');
+        const starsHtml = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+        document.getElementById('done-stars').innerHTML = `<span class="text-amber-500 text-lg font-black tracking-wider">${starsHtml}</span><span class="text-slate-500 text-xs ml-1 self-end">${r.rating}/5</span>`;
+        document.getElementById('done-comment').innerText = r.comment ? `"${r.comment}"` : '';
+        document.getElementById('done-bonus').innerText = r.bonusAmount > 0 ? `💰 เงินพิเศษ: ${r.bonusAmount.toLocaleString()} บาท` : '';
+    } else {
+        ratingBox.classList.add('hidden');
+    }
+
+    // After submission, if working → show QR in badge tab (trigger updateBadgeView)
+    updateBadgeView();
+}
+
+function editTimeclock() {
+    if (todayRecord?.status === 'evaluated') {
+        Swal.fire({ icon: 'info', title: 'ถูกประเมินแล้ว', text: 'ข้อมูลถูกประเมินโดยหัวหน้างานแล้ว ไม่สามารถแก้ไขได้' });
+        return;
+    }
+    isDirty = false;
+    document.getElementById('tc-done').classList.add('hidden');
+    document.getElementById('tc-form').classList.remove('hidden');
+    // Pre-fill
+    document.getElementById('tc-start').value = todayRecord?.empStartTime || '';
+    document.getElementById('tc-end').value = todayRecord?.empEndTime || '';
+    document.getElementById('tc-ot-start').value = todayRecord?.otStart || '';
+    document.getElementById('tc-ot-end').value = todayRecord?.otEnd || '';
+}
+
+window.markDirty = function() { isDirty = true; };
+
+window.confirmTimeclock = async function() {
+    const start = document.getElementById('tc-start').value;
+    const end = document.getElementById('tc-end').value;
+
+    if (!start || !end) {
+        return Swal.fire('ข้อมูลไม่ครบ', 'กรุณาใส่เวลาเริ่มงานและเลิกงานก่อน', 'warning');
+    }
+
+    const btn = document.getElementById('tc-confirm-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<div style="width:16px;height:16px;border:2px solid rgba(255,255,255,0.4);border-top-color:white;border-radius:50%;" class="spin"></div> กำลังบันทึก...';
+
+    try {
+        const updateData = {
+            empStartTime: start,
+            empEndTime: end,
+            otStart: document.getElementById('tc-ot-start').value || '',
+            otEnd: document.getElementById('tc-ot-end').value || '',
+            empUpdatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        if (todayRecordId) {
+            await db.collection("daily_records").doc(todayRecordId).update(updateData);
+        }
+
+        isDirty = false;
+        Swal.fire({ icon: 'success', title: 'บันทึกสำเร็จ', text: 'เวลาทำงานของคุณถูกบันทึกแล้ว', timer: 1500, showConfirmButton: false });
+
+    } catch (e) {
+        Swal.fire('Error', e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="check-circle" style="width:18px;height:18px;"></i> ยืนยันเวลาทำงาน';
+        lucide.createIcons();
+    }
+};
+
+// ===== Load History =====
+async function loadHistory() {
+    const listEl = document.getElementById('history-list');
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+    const cutoff = twoMonthsAgo.toISOString().split('T')[0];
+
+    try {
+        const snap = await db.collection("daily_records")
+            .where("uid", "==", uid)
+            .where("date", ">=", cutoff)
+            .get();
+
+        if (snap.empty) {
+            listEl.innerHTML = '<div class="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl border border-slate-100">ไม่มีประวัติการทำงาน</div>';
+            return;
+        }
+
+        let records = [];
+        snap.forEach(doc => records.push({ id: doc.id, ...doc.data() }));
+        records.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+        // Summary
+        const evaluated = records.filter(r => r.status === 'evaluated');
+        const totalDays = records.filter(r => ['working','evaluated'].includes(r.status)).length;
+        const avgRating = evaluated.length > 0
+            ? (evaluated.reduce((s, r) => s + (r.rating || 0), 0) / evaluated.length).toFixed(1)
+            : '-';
+        const totalBonus = evaluated.reduce((s, r) => s + (r.bonusAmount || 0), 0);
+
+        document.getElementById('hist-total-days').innerText = totalDays;
+        document.getElementById('hist-avg-rating').innerText = avgRating;
+        document.getElementById('hist-total-bonus').innerText = totalBonus.toLocaleString();
+
+        listEl.innerHTML = '';
+        records.forEach(r => {
+            const statusMap = {
+                'evaluated': ['ประเมินแล้ว', 'badge-eval-ok'],
+                'working': ['กำลังทำงาน', 'badge-eval-wait'],
+                'in': ['รอรับ', 'badge-eval-wait'],
+                'not_show': ['ไม่มา', 'badge-eval-absent'],
+                'out_only': ['ออกเท่านั้น', 'badge-eval-wait']
+            };
+            const [stTxt, stCls] = statusMap[r.status] || [r.status, 'badge-eval-wait'];
+            const stars = r.rating ? '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating) : '';
+            const deptName = masterData.depts[r.deptId] || '-';
+
+            listEl.innerHTML += `
+                <div class="history-card">
+                    <div class="history-card-header">
+                        <div>
+                            <span class="text-[11px] font-bold text-slate-700">${r.date}</span>
+                            <span class="text-[9px] text-slate-400 ml-1.5 font-medium">แผนก: ${deptName}</span>
+                        </div>
+                        <span class="badge-eval ${stCls}">${stTxt}</span>
+                    </div>
+                    <div class="history-card-body space-y-1.5">
+                        <div class="grid grid-cols-2 gap-1.5">
+                            <div class="bg-slate-50 rounded-lg px-2 py-1.5">
+                                <p class="text-[9px] text-slate-400 font-bold uppercase">รปภ.IN/OUT</p>
+                                <p class="text-[10px] font-bold text-slate-600 font-mono">${r.scanInTime || '-'} / ${r.scanOutTime || '-'}</p>
+                            </div>
+                            <div class="bg-indigo-50 rounded-lg px-2 py-1.5">
+                                <p class="text-[9px] text-slate-400 font-bold uppercase">ตนเองIN/OUT</p>
+                                <p class="text-[10px] font-bold text-indigo-600 font-mono">${r.empStartTime || '-'} / ${r.empEndTime || '-'}</p>
+                            </div>
+                        </div>
+                        ${(r.otStart || r.otEnd) ? `<div class="bg-amber-50 rounded-lg px-2 py-1.5"><p class="text-[9px] text-amber-700 font-bold uppercase">โอที: ${r.otStart || '-'} → ${r.otEnd || '-'}</p></div>` : ''}
+                        ${r.rating ? `
+                            <div class="flex items-center justify-between pt-1 border-t border-slate-100">
+                                <span class="text-amber-500 text-sm font-black">${stars}</span>
+                                ${r.bonusAmount > 0 ? `<span class="text-[10px] font-bold text-emerald-600">💰 +${r.bonusAmount.toLocaleString()} บ.</span>` : ''}
+                            </div>
+                            ${r.comment ? `<p class="text-[10px] text-slate-500 italic">"${r.comment}"</p>` : ''}
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        });
+        lucide.createIcons();
+    } catch (e) {
+        listEl.innerHTML = `<div class="text-rose-500 text-xs text-center p-4">Error: ${e.message}</div>`;
+    }
+}
+
+// ===== Tab Switching =====
+window.switchTab = function(tab) {
+    ['badge', 'timeclock', 'history'].forEach(t => {
+        document.getElementById('view-' + t).classList.remove('active');
+        document.getElementById('nav-' + t).classList.remove('active');
+    });
+    document.getElementById('view-' + tab).classList.add('active');
+    document.getElementById('nav-' + tab).classList.add('active');
+
+    if (tab === 'history') loadHistory();
+    lucide.createIcons();
+};
+
+// ===== Utility =====
+function convertThaiTimeTo24h(thaiTime) {
+    // thaiTime format: "08:30:00" from toLocaleTimeString
+    if (!thaiTime) return '';
+    const parts = thaiTime.split(':');
+    if (parts.length >= 2) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+    return '';
+}
+
+init();
+</script>
+</body>
+</html>

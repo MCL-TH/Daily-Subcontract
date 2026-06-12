@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบบริหารจัดการพนักงาน - Loading...</title>
+    
+    <!-- 🚀 เทคนิคที่ 1: เปิดเลนด่วน! สั่งให้มือถือเตรียมเชื่อมต่อเซิร์ฟเวอร์ไว้ล่วงหน้า -->
+    <link rel="preconnect" href="https://static.line-scdn.net" crossorigin>
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    
+    <!-- 🚀 แอบโหลดหน้าลงทะเบียน และหน้าบัตร รอไว้เบื้องหลัง (พอเด้งไปจะโหลดเสร็จทันที) -->
+    <link rel="prefetch" href="visitor.html">
+    <link rel="prefetch" href="badge.html">
+
+    <!-- เรียกใช้ SDK ต่างๆ แบบปกติ -->
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #ffffff; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 45px; height: 45px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        p { margin-top: 15px; color: #555; font-weight: bold; }
+        .fast-note { font-size: 12px; color: #999; margin-top: 5px; font-weight: normal; }
+    </style>
+</head>
+<body>
+
+    <div class="loader"></div>
+    <p id="status-text">กำลังตรวจสอบสิทธิ์...</p>
+    <span class="fast-note">หากค้างอยู่หน้าเดิมให้กดรีเฟรช</span>
+
+    <script>
+        // --- ส่วนที่ 1: ตั้งค่า Firebase ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyArJLTChk1lyzfTph6ELTdzKIdb4sQ_ybc",
+            authDomain: "maersk-mcl-v2.firebaseapp.com",
+            projectId: "maersk-mcl-v2",
+            storageBucket: "maersk-mcl-v2.firebasestorage.app",
+            messagingSenderId: "447590679734",
+            appId: "1:447590679734:web:f6881338981f9ae86bd217",
+            measurementId: "G-9CPJJVL2G6"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // ฟังก์ชันโยนผู้ใช้ไปหน้าต่างๆ
+        function redirectUser(role, userId) {
+            if (role === "visitor") {
+                window.location.replace("employee.html?uid=" + userId);
+            } else if (role === "asst_dept") {
+                window.location.replace("dept.html?uid=" + userId);
+            } else {
+                window.location.replace(role + ".html?uid=" + userId);
+            }
+        }
+
+        // 🚀 ฟังก์ชันใหม่: วิ่งไปเช็คสิทธิ์ล่าสุดจากฐานข้อมูลโดยตรง (ดักคนโดนเปลี่ยน Role/โดนแบน)
+        async function checkFirebaseAndRedirect(userId) {
+            try {
+                const userDoc = await db.collection("users").doc(userId).get();
+                if (userDoc.exists) {
+                    const userData = userDoc.data();
+                    
+                    // ดักจับกรณีโดนระงับใช้งาน (Banned)
+                    if (userData.status === 'banned') {
+                        document.getElementById("status-text").innerHTML = "❌ บัญชีของคุณถูกระงับการใช้งาน<br><small>กรุณาติดต่อผู้ดูแลระบบ</small>";
+                        document.getElementById("status-text").style.color = "#c0392b";
+                        document.querySelector('.loader').style.display = 'none';
+                        return;
+                    }
+
+                    // ตรวจสอบ Delegate: ถ้าเป็น visitor ให้เช็คว่าได้รับมอบสิทธิ์หรือเปล่า
+                    if (userData.role === 'visitor' && userData.status === 'approved' && userData.departmentId) {
+                        try {
+                            const delegateDoc = await db.collection("dept_delegates").doc(userData.departmentId).get();
+                            if (delegateDoc.exists) {
+                                const delegateUids = delegateDoc.data().delegateUids || [];
+                                if (delegateUids.includes(userId)) {
+                                    // มอบสิทธิ์แล้ว ส่งไป dept.html (แสดงเฉพาะแท็บเช็คชื่อ/ประเมิน)
+                                    window.location.replace("dept.html?uid=" + userId + "&mode=delegate");
+                                    return;
+                                }
+                            }
+                        } catch(e) { /* ถ้า collection ไม่มี ก็ผ่านไปได้ */ }
+                    }
+                    
+                    redirectUser(userData.role, userId);
+                } else {
+                    window.location.replace("visitor.html?uid=" + userId);
+                }
+            } catch (error) {
+                console.error("Firebase Error:", error);
+                document.getElementById("status-text").innerText = "การเชื่อมต่อฐานข้อมูลขัดข้อง กรุณารีเฟรชหน้าเว็บ";
+            }
+        }
+
+        // --- ส่วนที่ 2: ตั้งค่า LIFF และเช็คสิทธิ์ ---
+        async function main() {
+            // 🚀 เทคนิคที่ 3 (อัปเกรด): จำแค่ "รหัส UID" แทนการจำ Role
+            // ทำให้วิ่งไปถาม Firebase ได้ทันทีโดยไม่ต้องรอโหลดระบบ LINE (ลดเวลาไปได้ 1-2 วินาที)
+            const cachedUserId = localStorage.getItem("myAppUserId");
+            
+            if (cachedUserId) {
+                document.getElementById("status-text").innerText = "กำลังซิงค์ตำแหน่งปัจจุบัน...";
+                checkFirebaseAndRedirect(cachedUserId);
+                return; // หยุดการทำงานส่วน LIFF ด้านล่างไว้เลย (เร่งสปีด)
+            }
+
+            // --- สำหรับคนที่เข้าครั้งแรก (หรือ Cache หาย) ---
+            try {
+                // *** สำคัญ: อย่าลืมเปลี่ยน YOUR_LIFF_ID เป็น LIFF ID ของคุณ ***
+                await liff.init({ liffId: "2009594130-lz5Ao6LM" });
+
+                if (!liff.isLoggedIn()) {
+                    liff.login({ redirectUri: window.location.href }); 
+                    return;
+                }
+
+                // ดึง ID แบบสายฟ้าแลบ
+                const idToken = liff.getDecodedIDToken();
+                const context = liff.getContext();
+                let userId = (idToken && idToken.sub) ? idToken.sub : (context ? context.userId : null);
+
+                if (!userId) {
+                    const profile = await liff.getProfile();
+                    userId = profile.userId;
+                }
+
+                // จำรหัส UID ไว้ในเครื่อง เพื่อใช้เร่งความเร็วในครั้งถัดไป
+                localStorage.setItem("myAppUserId", userId);
+
+                document.getElementById("status-text").innerText = "กำลังเชื่อมต่อฐานข้อมูล...";
+                checkFirebaseAndRedirect(userId);
+
+            } catch (error) {
+                console.error("Error:", error);
+                document.getElementById("status-text").innerText = "เกิดข้อผิดพลาดจากระบบ LINE";
+            }
+        }
+
+        main();
+    </script>
+</body>
+</html>

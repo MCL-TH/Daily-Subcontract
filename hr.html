@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HR Portal - Security Hub</title>
+    
+    <!-- Tailwind CSS, Lucide Icons, SweetAlert2, Google Fonts -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore-compat.js"></script>
+
+    <style>
+        /* Maersk Blue Theme: #00243d (Navy) and #4299e1 (Sky Blue) */
+        body { font-family: 'Kanit', sans-serif; background: #0f172a; margin: 0; height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+        .app-container { width: 100%; max-width: 450px; height: 100%; background: #f8fafc; position: relative; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 0 30px rgba(0,0,0,0.3); }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        
+        .tab-content { display: none !important; flex-direction: column; height: 100%; }
+        .tab-content.active { display: flex !important; animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0, 36, 61, 0.7); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+        .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
+        
+        /* Custom Animations */
+        @keyframes pulse-border { 0% { border-color: rgba(245, 158, 11, 0.4); } 50% { border-color: rgba(245, 158, 11, 1); } 100% { border-color: rgba(245, 158, 11, 0.4); } }
+        .pending-highlight { border-left-width: 4px !important; border-left-color: #f59e0b !important; animation: pulse-border 2s infinite; }
+        
+        #global-loading { position: absolute; inset: 0; background: #f8fafc; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+        /* Custom Input */
+        .input-field { width: 100%; padding: 8px 12px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 12px; outline: none; transition: all 0.2s; background: #f8fafc; color: #334155; font-family: inherit;}
+        .input-field:focus { border-color: #4299e1; background: white; box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
+        .input-label { display: block; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 4px; margin-left: 4px; }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <!-- Loading Screen -->
+        <div id="global-loading">
+            <i data-lucide="loader-2" class="w-10 h-10 text-sky-500 animate-spin mb-4"></i>
+            <h2 class="text-lg font-bold text-slate-700 mt-2">กำลังเชื่อมต่อระบบ...</h2>
+            <p class="text-sm text-slate-500" id="loading-text">ตรวจสอบสิทธิ์ HR</p>
+        </div>
+
+        <!-- หน้าจอแจ้งเตือนกรณีไม่มีสิทธิ์ -->
+        <div id="no-access-screen" class="hidden absolute inset-0 bg-white z-50 flex-col items-center justify-center p-6 text-center">
+            <div class="w-20 h-20 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-4">
+                <i data-lucide="shield-alert" class="w-10 h-10"></i>
+            </div>
+            <h2 class="text-xl font-bold text-slate-800 mb-2">ปฏิเสธการเข้าถึง</h2>
+            <p class="text-sm text-slate-500 mb-6">คุณไม่มีสิทธิ์เข้าใช้งานหน้านี้ (เฉพาะฝ่ายบุคคล HR)</p>
+            <button onclick="window.location.href='index.html'" class="w-full bg-[#00243d] text-white font-bold py-4 rounded-xl active:scale-95 transition">กลับหน้าหลัก</button>
+        </div>
+
+        <!-- Header ย่อขนาดให้เล็กที่สุด (Ultra Minimal) -->
+        <header class="bg-[#00243d] px-3 py-2.5 text-white shadow-sm shrink-0 relative z-10 flex justify-between items-center border-b border-sky-500/30">
+            <div class="flex items-center gap-2">
+                <i data-lucide="users" class="w-4 h-4 text-sky-400"></i>
+                <h1 class="text-[11px] font-bold tracking-wide">HR PORTAL <span class="mx-1 text-slate-500">|</span> <span id="hr-name-display" class="font-normal text-sky-200">กำลังโหลด...</span></h1>
+            </div>
+            <button onclick="logout()" class="text-[9px] font-bold text-rose-300 hover:text-rose-100 flex items-center gap-1 bg-white/10 px-2 py-1 rounded transition">
+                <i data-lucide="log-out" class="w-3 h-3"></i> ออก
+            </button>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="flex-grow overflow-y-auto bg-slate-50 relative z-0 hide-scroll pb-4">
+            
+            <!-- TAB 1: คำขอกำลังคน (Requests) -->
+            <div id="view-requests" class="tab-content active p-3 space-y-3">
+                <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-center">
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5"><i data-lucide="inbox" class="w-4 h-4 text-sky-600"></i> คำขอกำลังคน</h2>
+                        <p class="text-[9px] text-slate-500 leading-tight mt-1">รายการรอจัดสรรโควต้าให้ Subcontract</p>
+                    </div>
+                    <div class="text-right bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200 shadow-sm">
+                        <p class="text-[9px] font-bold text-amber-700 uppercase flex items-center gap-1"><i data-lucide="alert-circle" class="w-3 h-3"></i> รอจัดสรร</p>
+                        <h3 id="pending-req-count" class="text-xl font-black text-amber-600 leading-none mt-1">0</h3>
+                    </div>
+                </div>
+                
+                <div id="requests-list" class="space-y-2.5 pb-4">
+                    <!-- รายการคำขอจะแสดงที่นี่ -->
+                </div>
+            </div>
+
+            <!-- TAB 2: จัดการพนักงาน (Employee Management) -->
+            <div id="view-employees" class="tab-content p-3 flex flex-col h-full">
+                
+                <!-- ฟิลเตอร์ (อยู่ด้านบนสุด) -->
+                <div class="w-full overflow-x-auto hide-scroll mb-2 shrink-0">
+                    <div class="flex gap-2 min-w-max pb-1">
+                        <button onclick="setEmpFilter('all')" id="filter-emp-all" class="text-[10px] font-bold px-3 py-1.5 bg-[#00243d] text-white rounded-lg shadow-sm transition-all border border-[#00243d] whitespace-nowrap">ทั้งหมด</button>
+                        <button onclick="setEmpFilter('approved')" id="filter-emp-approved" class="text-[10px] font-bold px-3 py-1.5 bg-slate-100 text-slate-500 rounded-lg transition-all border border-slate-200 whitespace-nowrap">ใช้งาน</button>
+                        <button onclick="setEmpFilter('pending')" id="filter-emp-pending" class="text-[10px] font-bold px-3 py-1.5 bg-slate-100 text-slate-500 rounded-lg transition-all border border-slate-200 flex items-center gap-1 whitespace-nowrap">รออนุมัติ <span id="badge-pending" class="bg-amber-500 text-white px-1.5 rounded-full text-[8px] hidden">0</span></button>
+                        <button onclick="setEmpFilter('banned')" id="filter-emp-banned" class="text-[10px] font-bold px-3 py-1.5 bg-slate-100 text-slate-500 rounded-lg transition-all border border-slate-200 whitespace-nowrap">แบล็คลิสต์</button>
+                    </div>
+                </div>
+
+                <!-- กล่องค้นหา -->
+                <div class="bg-white p-2.5 rounded-xl shadow-sm border border-slate-200 mb-2 shrink-0">
+                    <div class="relative">
+                        <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2"></i>
+                        <input type="text" id="search-emp" placeholder="พิมพ์ชื่อ, บริษัท หรือ แผนก..." class="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-sky-500 text-[11px] transition-colors">
+                    </div>
+                </div>
+
+                <div id="employee-list" class="space-y-2.5 pb-4 flex-grow overflow-y-auto hide-scroll">
+                    <!-- รายชื่อพนักงานจะแสดงที่นี่ -->
+                </div>
+            </div>
+
+            <!-- TAB 3: ส่งออกข้อมูล (Export) -->
+            <div id="view-export" class="tab-content p-4 justify-center h-full">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                    <div class="w-12 h-12 bg-sky-100 text-sky-600 rounded-full flex items-center justify-center mb-3 mx-auto">
+                        <i data-lucide="file-spreadsheet" class="w-6 h-6"></i>
+                    </div>
+                    <h2 class="text-[15px] font-bold text-center text-slate-800 mb-1">ดาวน์โหลดรายงานการทำงานจริง</h2>
+                    <p class="text-[10px] text-center text-slate-500 mb-5">ดึงข้อมูลเฉพาะพนักงานที่มาปฏิบัติงานจริงตามช่วงเวลา อาคาร และแผนก</p>
+                    
+                    <div class="space-y-3 mb-5 text-left">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="input-label">ตั้งแต่วันที่</label>
+                                <input type="date" id="exportStartDate" class="input-field font-mono">
+                            </div>
+                            <div>
+                                <label class="input-label">ถึงวันที่</label>
+                                <input type="date" id="exportEndDate" class="input-field font-mono">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="input-label">อาคาร/คลังสินค้า</label>
+                                <select id="exportWarehouseSelect" onchange="updateExportDeptDropdown()" class="input-field"><option value="all">-- ทุกอาคาร --</option></select>
+                            </div>
+                            <div>
+                                <label class="input-label">แผนก</label>
+                                <select id="exportDeptSelect" class="input-field"><option value="all">-- ทุกแผนก --</option></select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button onclick="exportToExcel()" class="w-full bg-[#00243d] hover:bg-slate-800 text-white font-bold py-3.5 rounded-xl shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 text-sm">
+                        <i data-lucide="download" class="w-4 h-4 text-sky-400"></i> ดาวน์โหลดรายงาน (CSV)
+                    </button>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bg-white border-t border-slate-200 flex justify-around p-2 shrink-0 relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] rounded-t-3xl">
+            <button id="nav-requests" onclick="switchMainTab('requests')" class="flex flex-col items-center justify-center w-full p-2 text-[#00243d] transition-colors">
+                <i data-lucide="file-text" class="w-5 h-5 mb-1"></i>
+                <span class="text-[10px] font-bold">คำขอกำลังคน</span>
+            </button>
+            <button id="nav-employees" onclick="switchMainTab('employees')" class="flex flex-col items-center justify-center w-full p-2 text-slate-400 transition-colors">
+                <i data-lucide="users" class="w-5 h-5 mb-1"></i>
+                <span class="text-[10px] font-bold">รายชื่อพนักงาน</span>
+            </button>
+            <button id="nav-export" onclick="switchMainTab('export')" class="flex flex-col items-center justify-center w-full p-2 text-slate-400 transition-colors">
+                <i data-lucide="download-cloud" class="w-5 h-5 mb-1"></i>
+                <span class="text-[10px] font-bold">ส่งออก</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- ==============================================
+         MODALS 
+         ============================================== -->
+
+    <!-- Modal: จัดสรรโควต้า (Allocation) -->
+    <div id="allocate-modal" class="modal-overlay">
+        <div class="bg-white w-full max-w-sm rounded-[32px] shadow-2xl flex flex-col max-h-[90vh]">
+            <div class="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-[32px] shrink-0">
+                <h3 class="text-[15px] font-bold text-slate-800 flex items-center gap-1.5">
+                    <i data-lucide="network" class="w-4 h-4 text-sky-600"></i> จัดสรรโควต้าให้ Subcontract
+                </h3>
+                <button onclick="toggleModal('allocate-modal', false)" class="text-slate-400 hover:bg-slate-200 p-1.5 rounded-full active:scale-90 transition"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            
+            <div class="p-4 flex-grow overflow-y-auto hide-scroll">
+                
+                <!-- สรุปข้อมูลคำขอ -->
+                <div class="bg-[#00243d] p-4 rounded-xl mb-4 text-white shadow-md relative overflow-hidden">
+                    <div class="absolute -right-4 -bottom-4 opacity-10"><i data-lucide="building" class="w-24 h-24"></i></div>
+                    <h4 id="modal-req-dept" class="text-sm font-bold text-sky-300 mb-2 border-b border-sky-800 pb-2 relative z-10">-</h4>
+                    <div class="space-y-1 text-xs relative z-10">
+                        <p class="flex justify-between"><span class="text-slate-400">โปรเจกต์:</span> <span id="modal-req-camp" class="font-bold text-white">-</span></p>
+                        <p class="flex justify-between"><span class="text-slate-400">วันที่ / เวลา:</span> <span id="modal-req-time" class="font-bold text-white">-</span></p>
+                        <p class="flex justify-between"><span class="text-slate-400">ตำแหน่ง:</span> <span id="modal-req-pos" class="font-bold text-white">-</span></p>
+                        <p class="flex justify-between items-center mt-1"><span class="text-slate-400">โควต้ารวมที่ขอ:</span> <span id="modal-req-amount" class="font-bold text-[#00243d] bg-sky-400 px-2 py-0.5 rounded shadow-sm text-sm">0 คน</span></p>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <p class="text-[10px] font-bold text-slate-500 uppercase mb-1">งบประมาณที่แผนกเสนอมา:</p>
+                    <p id="modal-req-wage" class="text-xs text-emerald-600 bg-emerald-50 p-2.5 rounded-xl border border-emerald-100 font-mono font-bold">-</p>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex justify-between items-end">
+                        <label class="text-[10px] font-bold text-[#00243d] uppercase">แบ่งโควต้าให้บริษัท (Subcontract)</label>
+                        <span id="quota-remaining" class="text-[10px] font-bold text-rose-500">เหลืออีก: 0 คน</span>
+                    </div>
+                    
+                    <div id="allocation-rows" class="space-y-2">
+                        <!-- แถวจัดสรรจะถูกเพิ่มที่นี่ด้วย JS -->
+                    </div>
+
+                    <button onclick="addAllocationRow()" class="w-full py-2 border-2 border-dashed border-sky-200 text-sky-600 rounded-xl text-[11px] font-bold hover:bg-sky-50 transition flex items-center justify-center gap-1 mt-2">
+                        <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> เพิ่มบริษัทรับงาน
+                    </button>
+                </div>
+
+                <div class="mt-4">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase block mb-1">หมายเหตุถึง หัวหน้าแผนก / Subcontract</label>
+                    <textarea id="modal-req-reply" rows="2" placeholder="เช่น กระจายโควต้าให้ 2 บริษัทเรียบร้อยแล้ว" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-sky-500 transition-all text-slate-700"></textarea>
+                </div>
+            </div>
+
+            <div class="p-3 bg-white border-t border-slate-100 rounded-b-[32px] shrink-0">
+                <button onclick="saveAllocation()" class="w-full bg-[#00243d] hover:bg-slate-800 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-slate-200 active:scale-95 transition-all flex justify-center items-center gap-2 text-sm">
+                    <i data-lucide="send" class="w-4 h-4 text-sky-400"></i> ยืนยันการจัดสรรโควต้า
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: จัดการพนักงาน (Manage Employee) -->
+    <div id="emp-manage-modal" class="modal-overlay">
+        <div class="bg-white w-full max-w-sm rounded-[32px] shadow-2xl flex flex-col max-h-[90vh]">
+            <div class="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-[32px] shrink-0">
+                <h3 class="text-[15px] font-bold text-slate-800 flex items-center gap-1.5">
+                    <i data-lucide="user-cog" class="w-4 h-4 text-[#00243d]"></i> จัดการข้อมูลพนักงาน
+                </h3>
+                <button onclick="toggleModal('emp-manage-modal', false)" class="text-slate-400 hover:bg-slate-200 p-1.5 rounded-full active:scale-90 transition"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            
+            <div class="p-4 flex-grow overflow-y-auto hide-scroll">
+                
+                <!-- ข้อมูลส่วนตัว -->
+                <div class="flex items-center gap-3 mb-4 border-b border-slate-100 pb-3">
+                    <img id="modal-emp-img" src="" class="w-10 h-10 rounded-full object-cover bg-slate-100 border border-slate-200 shadow-sm shrink-0">
+                    <div class="flex-1 min-w-0 text-left">
+                        <p id="modal-emp-name" class="font-bold text-[13px] text-slate-800 truncate"></p>
+                        <p id="modal-emp-phone" class="text-[10px] text-slate-500 font-mono truncate my-0.5"></p>
+                        <p id="modal-emp-comp" class="text-[9px] font-bold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 inline-block mt-1"></p>
+                    </div>
+                </div>
+
+                <!-- ส่วนที่ 1: จัดการสถานะ -->
+                <div class="space-y-3">
+                    <div>
+                        <label class="input-label">สถานะการเข้าพื้นที่ <span class="text-rose-500">*</span></label>
+                        <select id="edit-emp-status" onchange="checkStatusChange()" class="input-field font-bold">
+                            <option value="pending" class="text-amber-600">รออนุมัติ (Pending)</option>
+                            <option value="approved" class="text-emerald-600">ใช้งานปกติ (Active)</option>
+                            <option value="expired" class="text-slate-600">บัตรหมดอายุ (Expired)</option>
+                            <option value="banned" class="text-rose-600">ระงับสิทธิ์ (Blacklist)</option>
+                        </select>
+                    </div>
+                    
+                    <div id="edit-blacklist-group" class="hidden">
+                        <label class="input-label text-rose-600">สาเหตุการแบล็คลิสต์ <span class="text-rose-500">*</span></label>
+                        <input type="text" id="edit-emp-bl-reason" placeholder="ระบุสาเหตุที่ระงับสิทธิ์..." class="input-field border-rose-200 focus:border-rose-500">
+                    </div>
+
+                    <div id="approve-group" class="space-y-3">
+                        <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                            <label class="input-label">บริษัทต้นสังกัด (Subcontractor)</label>
+                            <select id="edit-emp-company" class="input-field mb-2"></select>
+                            
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="input-label">แผนก</label>
+                                    <select id="edit-emp-dept" class="input-field"></select>
+                                </div>
+                                <div>
+                                    <label class="input-label">ตำแหน่ง</label>
+                                    <select id="edit-emp-pos" class="input-field"></select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="edit-expiry-group" class="grid grid-cols-2 gap-2 bg-sky-50 p-2.5 rounded-xl border border-sky-100">
+                            <div>
+                                <label class="input-label text-sky-700">เริ่มงานวันที่</label>
+                                <input type="date" id="edit-emp-start" class="input-field font-mono">
+                            </div>
+                            <div>
+                                <label class="input-label text-rose-600">หมดอายุบัตร</label>
+                                <input type="date" id="edit-emp-expiry" class="input-field font-mono border-rose-200">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="p-3 bg-white border-t border-slate-100 rounded-b-[32px] shrink-0">
+                <button onclick="saveEmployee()" class="w-full bg-[#00243d] hover:bg-slate-800 text-white font-bold py-3.5 rounded-xl shadow-md active:scale-95 transition-all flex justify-center items-center gap-1.5 text-[13px]">
+                    <i data-lucide="save" class="w-3.5 h-3.5 text-sky-400"></i> บันทึกข้อมูล
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: ดูประวัติ (History) -->
+    <div id="history-modal" class="modal-overlay">
+        <div class="bg-white w-full max-w-sm rounded-[32px] p-5 shadow-2xl flex flex-col max-h-[85vh]">
+            <div class="flex justify-between items-center mb-3 shrink-0">
+                <h3 class="text-[15px] font-bold text-slate-800 flex items-center gap-1.5"><i data-lucide="history" class="w-4 h-4 text-sky-600"></i> ประวัติการทำงาน</h3>
+                <button onclick="toggleModal('history-modal', false)" class="text-slate-400 bg-slate-100 hover:bg-slate-200 p-1.5 rounded-full active:scale-90 transition"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            
+            <div class="flex items-center gap-3 mb-3 pb-3 border-b border-slate-100 shrink-0">
+                <img id="hist-img" src="" class="w-10 h-10 rounded-full object-cover bg-slate-200 border border-sky-100 shadow-sm">
+                <div class="flex-1 min-w-0">
+                    <p id="hist-name" class="font-bold text-[13px] text-slate-800 truncate"></p>
+                    <p id="hist-details" class="text-[9px] text-slate-500 font-medium truncate mt-0.5"></p>
+                    <p id="hist-avg" class="text-[9px] text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 inline-block font-bold mt-1"></p>
+                </div>
+            </div>
+
+            <div class="flex-grow overflow-y-auto hide-scroll space-y-3">
+                <div id="hist-unified-list" class="space-y-2">
+                    <!-- ประวัติจะแสดงที่นี่ -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. Firebase Setup & Global State
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyArJLTChk1lyzfTph6ELTdzKIdb4sQ_ybc",
+            authDomain: "maersk-mcl-v2.firebaseapp.com",
+            projectId: "maersk-mcl-v2",
+            storageBucket: "maersk-mcl-v2.firebasestorage.app",
+            messagingSenderId: "447590679734",
+            appId: "1:447590679734:web:f6881338981f9ae86bd217"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const hrUid = urlParams.get('uid') || localStorage.getItem('myAppUserId');
+        
+        let hrData = null;
+        let masterData = { companies: {}, depts: {}, positions: {}, warehouses: {} };
+        let allRequests = [];
+        let allEmployees = [];
+        let empFilterState = 'all'; 
+        let currentReqId = null;
+        let currentEmpId = null;
+        let totalRequestedAmount = 0;
+
+        // ==========================================
+        // 2. Initialization
+        // ==========================================
+        async function initHRPanel() {
+            if (!hrUid) {
+                document.getElementById('global-loading').style.display = "none";
+                document.getElementById('no-access-screen').classList.replace("hidden", "flex");
+                return;
+            }
+
+            try {
+                const userDoc = await db.collection("users").doc(hrUid).get();
+                if (!userDoc.exists) throw new Error("ไม่พบข้อมูลบัญชีของคุณ");
+                
+                hrData = userDoc.data();
+                
+                const userRole = (hrData.role || "").toLowerCase();
+                if (userRole !== "hr" && userRole !== "superuser") {
+                    document.getElementById('global-loading').style.display = "none";
+                    document.getElementById('no-access-screen').classList.replace("hidden", "flex");
+                    return;
+                }
+
+                document.getElementById("hr-name-display").innerText = hrData.fullname;
+                
+                await loadMasterData();
+                listenToRequests();
+                listenToEmployees();
+
+                document.getElementById('global-loading').style.display = "none";
+                lucide.createIcons();
+
+            } catch (error) {
+                document.getElementById('loading-text').innerHTML = `<span class="text-rose-500 font-bold">ข้อผิดพลาด: ${error.message}</span>`;
+                document.querySelector('#global-loading i').classList.replace('text-sky-500', 'text-rose-500');
+                document.querySelector('#global-loading i').setAttribute('data-lucide', 'alert-triangle');
+                lucide.createIcons();
+            }
+        }
+
+        async function loadMasterData() {
+            const [compSnap, deptSnap, posSnap, whSnap] = await Promise.all([
+                db.collection("companies").get(),
+                db.collection("departments").get(),
+                db.collection("positions").get(),
+                db.collection("warehouses").get()
+            ]);
+
+            const editComp = document.getElementById("edit-emp-company");
+            const exportWh = document.getElementById("exportWarehouseSelect");
+            
+            editComp.innerHTML = '<option value="">-- เลือกบริษัท --</option>';
+            exportWh.innerHTML = '<option value="all">-- ทุกอาคาร --</option>';
+
+            whSnap.forEach(doc => {
+                masterData.warehouses[doc.id] = doc.data().name;
+                exportWh.innerHTML += `<option value="${doc.id}">${doc.data().name}</option>`;
+            });
+
+            compSnap.forEach(doc => {
+                masterData.companies[doc.id] = doc.data().name;
+                const opt = `<option value="${doc.id}">${doc.data().name}</option>`;
+                editComp.innerHTML += opt;
+            });
+
+            const editDept = document.getElementById("edit-emp-dept");
+            editDept.innerHTML = '<option value="">-- เลือกแผนก --</option>';
+            deptSnap.forEach(doc => {
+                masterData.depts[doc.id] = { name: doc.data().name, warehouseId: doc.data().warehouseId };
+                editDept.innerHTML += `<option value="${doc.id}">${doc.data().name}</option>`;
+            });
+
+            const editPos = document.getElementById("edit-emp-pos");
+            editPos.innerHTML = '<option value="">-- เลือกตำแหน่ง --</option>';
+            posSnap.forEach(doc => {
+                masterData.positions[doc.id] = doc.data().name;
+                editPos.innerHTML += `<option value="${doc.id}">${doc.data().name}</option>`;
+            });
+        }
+
+        window.updateExportDeptDropdown = function() {
+            const whId = document.getElementById('exportWarehouseSelect').value;
+            const deptSelect = document.getElementById('exportDeptSelect');
+            deptSelect.innerHTML = '<option value="all">-- ทุกแผนก --</option>';
+            if(!whId || whId === 'all') return;
+
+            Object.entries(masterData.depts).forEach(([id, dept]) => {
+                if(dept.warehouseId === whId) {
+                    deptSelect.innerHTML += `<option value="${id}">${dept.name}</option>`;
+                }
+            });
+        }
+
+        // ==========================================
+        // TAB 1: Quota Requests
+        // ==========================================
+        function listenToRequests() {
+            db.collection("quota_requests").onSnapshot(snap => {
+                allRequests = [];
+                snap.forEach(doc => allRequests.push({ id: doc.id, ...doc.data() }));
+                allRequests.sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+                renderRequests();
+            });
+        }
+
+        function renderRequests() {
+            const listEl = document.getElementById('requests-list');
+            listEl.innerHTML = '';
+            let pendingCount = 0;
+
+            if (allRequests.length === 0) {
+                listEl.innerHTML = '<div class="text-center py-10 text-slate-400 text-sm border border-dashed border-slate-200 rounded-3xl bg-white">ไม่มีคำขอกำลังคนในระบบ</div>';
+                document.getElementById('pending-req-count').innerText = 0;
+                return;
+            }
+
+            allRequests.forEach(r => {
+                let statusColor = 'bg-slate-100 text-slate-500 border-slate-200';
+                let statusIcon = 'clock';
+                let statusText = 'รอจัดสรร';
+                let cardHighlight = 'border-slate-200 hover:border-[#00243d]';
+                
+                if(r.status === 'allocated' || r.status === 'approved') { 
+                    statusColor = 'bg-emerald-50 text-emerald-600 border-emerald-200'; 
+                    statusIcon = 'check-circle'; statusText = 'จัดสรรแล้ว'; 
+                } else if(r.status === 'cancelled' || r.status === 'rejected') { 
+                    statusColor = 'bg-rose-50 text-rose-600 border-rose-200'; 
+                    statusIcon = 'x-circle'; statusText = 'ปฏิเสธ/ยกเลิก'; 
+                } else if(r.status === 'pending') { 
+                    pendingCount++;
+                    statusColor = 'bg-amber-100 text-amber-700 border-amber-300 font-bold px-2 py-1 shadow-sm'; 
+                    statusIcon = 'alert-circle';
+                    cardHighlight = 'pending-highlight bg-amber-50/20'; 
+                }
+
+                const deptName = masterData.depts[r.deptId]?.name || 'ไม่ระบุแผนก';
+                const startStr = r.startDate ? new Date(r.startDate).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' }) : '-';
+                const endStr = r.endDate ? new Date(r.endDate).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' }) : '-';
+
+                let allocHtml = '';
+                if(r.allocations && r.allocations.length > 0) {
+                    allocHtml = '<div class="mt-2 pt-2 border-t border-dashed border-slate-200 space-y-1">';
+                    r.allocations.forEach(a => {
+                        const cName = masterData.companies[a.companyId] || 'ไม่ทราบ';
+                        allocHtml += `<p class="text-[10px] text-slate-600 flex justify-between"><span class="font-bold text-[#00243d]"><i data-lucide="corner-down-right" class="w-3 h-3 inline"></i> โควต้า -> ${cName}:</span> <span class="font-bold text-sky-600">${a.amount} คน</span></p>`;
+                    });
+                    allocHtml += '</div>';
+                }
+
+                listEl.innerHTML += `
+                    <div class="bg-white p-3.5 rounded-2xl shadow-sm border transition-all ${cardHighlight}">
+                        <div class="flex justify-between items-start mb-2 border-b border-slate-50 pb-2">
+                            <div>
+                                <h4 class="font-bold text-[13px] text-[#00243d]">${deptName}</h4>
+                                <p class="text-[9px] text-slate-500 mt-0.5"><i data-lucide="folder" class="w-3 h-3 inline -mt-0.5"></i> ${r.campaignName}</p>
+                            </div>
+                            <span class="text-[9px] font-bold px-2 py-1 rounded-md border ${statusColor} flex items-center gap-1 shrink-0">
+                                <i data-lucide="${statusIcon}" class="w-3 h-3"></i> ${statusText}
+                            </span>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] text-slate-600 mb-2">
+                            <p><span class="font-bold text-slate-400">วันที่:</span> ${startStr} - ${endStr}</p>
+                            <p><span class="font-bold text-slate-400">เวลา:</span> ${r.startTime} - ${r.endTime} น.</p>
+                            <p class="col-span-2"><span class="font-bold text-slate-400">ตำแหน่ง:</span> ${r.position}</p>
+                            <p class="col-span-2 flex items-center gap-1"><span class="font-bold text-slate-400">โควต้ารวมที่ขอมา:</span> <span class="font-bold text-white bg-sky-500 px-1.5 rounded shadow-sm">${r.amount} คน</span></p>
+                        </div>
+                        
+                        ${allocHtml}
+                        ${r.hrReply ? `<div class="bg-sky-50 p-2 rounded-lg border border-sky-100 mt-2 mb-2"><p class="text-[10px] text-sky-800 italic flex items-start gap-1"><i data-lucide="check-square" class="w-3 h-3 mt-0.5 shrink-0"></i> "HR: ${r.hrReply}"</p></div>` : ''}
+                        ${r.cancelReason ? `<div class="bg-rose-50 p-2 rounded-lg border border-rose-100 mt-2 mb-2"><p class="text-[10px] text-rose-800 italic flex items-start gap-1"><i data-lucide="info" class="w-3 h-3 mt-0.5 shrink-0"></i> "เหตุผล: ${r.cancelReason}"</p></div>` : ''}
+                        
+                        <button onclick="openAllocateModal('${r.id}')" class="w-full mt-2 bg-[#00243d] text-white text-[11px] font-bold py-2 rounded-xl active:scale-95 transition shadow-sm flex justify-center items-center gap-1 hover:bg-slate-800">
+                            <i data-lucide="network" class="w-3.5 h-3.5 text-sky-400"></i> ${r.status === 'pending' ? 'พิจารณาและจัดสรรโควต้า' : 'ดูการจัดสรรโควต้า'}
+                        </button>
+                    </div>
+                `;
+            });
+            document.getElementById('pending-req-count').innerText = pendingCount;
+            lucide.createIcons();
+        }
+
+        window.openAllocateModal = function(id) {
+            const req = allRequests.find(r => r.id === id);
+            if(!req) return;
+            currentReqId = id;
+            totalRequestedAmount = req.amount;
+
+            document.getElementById('modal-req-dept').innerText = masterData.depts[req.deptId]?.name || 'ไม่ระบุ';
+            document.getElementById('modal-req-camp').innerText = req.campaignName;
+            
+            const startStr = req.startDate ? new Date(req.startDate).toLocaleDateString('th-TH', {month:'short', day:'numeric'}) : '-';
+            document.getElementById('modal-req-time').innerText = `${startStr} (${req.startTime} - ${req.endTime} น.)`;
+            
+            document.getElementById('modal-req-pos').innerText = req.position;
+            document.getElementById('modal-req-amount').innerText = `${req.amount} คน`;
+            
+            const base = req.wages?.base || 0;
+            const shift = req.wages?.shift || 0;
+            const skill = req.wages?.skill || 0;
+            const extra = req.wages?.special || 0;
+            const totalWage = base + shift + skill + extra;
+            document.getElementById('modal-req-wage').innerText = `รวม: ${totalWage} บาท/คน/วัน (ฐาน: ${base})`;
+
+            const rowContainer = document.getElementById('allocation-rows');
+            rowContainer.innerHTML = '';
+            if(req.allocations && req.allocations.length > 0) {
+                req.allocations.forEach(a => addAllocationRow(a.companyId, a.amount));
+            } else {
+                addAllocationRow(); 
+            }
+
+            document.getElementById('modal-req-reply').value = req.hrReply || '';
+            calculateRemaining();
+            toggleModal('allocate-modal', true);
+        }
+
+        window.addAllocationRow = function(comp = '', amt = '') {
+            const rowContainer = document.getElementById('allocation-rows');
+            let compOptions = '<option value="">-- เลือกบริษัท --</option>';
+            Object.keys(masterData.companies).forEach(id => {
+                compOptions += `<option value="${id}" ${id === comp ? 'selected' : ''}>${masterData.companies[id]}</option>`;
+            });
+
+            const div = document.createElement('div');
+            div.className = "flex gap-2 items-center bg-white p-2 rounded-xl border border-slate-200 shadow-sm alloc-row";
+            div.innerHTML = `
+                <select class="alloc-comp w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none focus:border-sky-500 font-medium">
+                    ${compOptions}
+                </select>
+                <div class="flex items-center gap-1 shrink-0">
+                    <input type="number" min="1" value="${amt}" oninput="calculateRemaining()" placeholder="จน." class="alloc-amt w-14 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none focus:border-sky-500 text-center font-bold">
+                    <span class="text-[10px] text-slate-400 font-bold">คน</span>
+                    <button onclick="this.parentElement.parentElement.remove(); calculateRemaining();" class="p-1.5 text-rose-400 hover:bg-rose-50 rounded-lg transition ml-1"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+            `;
+            rowContainer.appendChild(div);
+            lucide.createIcons();
+        }
+
+        window.calculateRemaining = function() {
+            let assigned = 0;
+            document.querySelectorAll('.alloc-amt').forEach(inp => assigned += parseInt(inp.value || 0));
+            const remaining = totalRequestedAmount - assigned;
+            const remainingEl = document.getElementById('quota-remaining');
+            
+            if (remaining > 0) {
+                remainingEl.innerText = `เหลืออีก: ${remaining} คน`;
+                remainingEl.className = "text-[10px] font-bold text-amber-500";
+            } else if (remaining === 0) {
+                remainingEl.innerText = `จัดสรรครบพอดี!`;
+                remainingEl.className = "text-[10px] font-bold text-emerald-600";
+            } else {
+                remainingEl.innerText = `เกินมา: ${Math.abs(remaining)} คน!`;
+                remainingEl.className = "text-[10px] font-bold text-rose-600";
+            }
+        }
+
+        window.saveAllocation = async function() {
+            const reply = document.getElementById('modal-req-reply').value.trim();
+            let allocations = [];
+            let isValid = true;
+            let assignedTotal = 0;
+
+            document.querySelectorAll('.alloc-row').forEach(row => {
+                const comp = row.querySelector('.alloc-comp').value;
+                const amt = parseInt(row.querySelector('.alloc-amt').value || 0);
+                if (comp && amt > 0) { allocations.push({ companyId: comp, amount: amt }); assignedTotal += amt; } 
+                else if (comp || amt > 0) { isValid = false; }
+            });
+
+            if (!isValid) return Swal.fire('ข้อมูลไม่สมบูรณ์', 'กรุณาระบุชื่อบริษัทและจำนวนคนให้ครบถ้วนในแต่ละแถว', 'warning');
+            
+            if (allocations.length === 0 && assignedTotal === 0) {
+                return Swal.fire({ title: 'ปฏิเสธคำขอ?', text: 'คุณไม่ได้แบ่งโควต้าให้บริษัทใดเลย ต้องการปฏิเสธคำขอนี้ใช่หรือไม่', icon: 'question', showCancelButton: true })
+                .then(async (res) => {
+                    if(res.isConfirmed) {
+                        Swal.fire({title:'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+                        await db.collection("quota_requests").doc(currentReqId).update({ status: 'rejected', hrReply: reply });
+                        toggleModal('allocate-modal', false);
+                        Swal.fire({icon: 'success', title: 'ปฏิเสธคำขอแล้ว', timer:1500, showConfirmButton:false});
+                    }
+                });
+            }
+            
+            if (assignedTotal > totalRequestedAmount) return Swal.fire('โควต้าเกิน', 'คุณจัดสรรกำลังคนเกินกว่าที่แผนกขอมา', 'error');
+
+            Swal.fire({title:'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+            try {
+                await db.collection("quota_requests").doc(currentReqId).update({ 
+                    status: 'allocated', 
+                    allocations: allocations, 
+                    hrReply: reply,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                toggleModal('allocate-modal', false);
+                Swal.fire({ icon: 'success', title: 'จัดสรรโควต้าสำเร็จ', text: 'ระบบได้บันทึกการกระจายโควต้าแล้ว', timer: 2000, showConfirmButton: false });
+            } catch (error) {
+                Swal.fire('Error', error.message, 'error');
+            }
+        }
+
+
+        // ==========================================
+        // TAB 2: Employee Management
+        // ==========================================
+        function listenToEmployees() {
+            db.collection("users").where("role", "==", "visitor").onSnapshot(snap => {
+                allEmployees = [];
+                let pendingCount = 0;
+                snap.forEach(doc => {
+                    const u = doc.data(); u.id = doc.id;
+                    allEmployees.push(u);
+                    if(u.status === 'pending') pendingCount++;
+                });
+                allEmployees.sort((a, b) => (b.registeredAt?.seconds || 0) - (a.registeredAt?.seconds || 0));
+                
+                const pBadge = document.getElementById('badge-pending');
+                if(pBadge) {
+                    pBadge.innerText = pendingCount;
+                    if(pendingCount > 0) {
+                        pBadge.classList.remove('hidden');
+                        pBadge.classList.replace('bg-slate-300', 'bg-amber-500');
+                    } else {
+                        pBadge.classList.add('hidden');
+                        pBadge.classList.replace('bg-amber-500', 'bg-slate-300');
+                    }
+                }
+                
+                renderEmployees();
+            });
+        }
+
+        function renderEmployees() {
+            const listEl = document.getElementById('employee-list');
+            listEl.innerHTML = '';
+            const keyword = document.getElementById('search-emp').value.toLowerCase();
+
+            let filtered = allEmployees.filter(emp => {
+                if (empFilterState === 'all') return true;
+                if (empFilterState === 'approved') return emp.status === 'approved' || emp.status === 'expired';
+                return emp.status === empFilterState;
+            });
+
+            if (keyword) {
+                filtered = filtered.filter(emp => {
+                    const cName = masterData.companies[emp.companyId]?.toLowerCase() || '';
+                    const dName = masterData.depts[emp.departmentId]?.name?.toLowerCase() || '';
+                    return (emp.fullname?.toLowerCase().includes(keyword) || 
+                            cName.includes(keyword) ||
+                            dName.includes(keyword));
+                });
+            }
+
+            if (filtered.length === 0) {
+                listEl.innerHTML = '<div class="text-center py-10 text-slate-400 text-sm bg-white border border-dashed border-slate-200 rounded-3xl mt-2">ไม่พบรายชื่อพนักงาน</div>';
+                return;
+            }
+
+            filtered.forEach(emp => {
+                const isBL = emp.status === 'banned';
+                
+                let statusBadge = '';
+                if(emp.status === 'approved') statusBadge = '<span class="text-[8px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold border border-emerald-200">ใช้งาน</span>';
+                else if(emp.status === 'pending') statusBadge = '<span class="text-[8px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold border border-amber-200">รออนุมัติ</span>';
+                else if(emp.status === 'expired') statusBadge = '<span class="text-[8px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-bold border border-slate-300">หมดอายุ</span>';
+                else if(emp.status === 'banned') statusBadge = '<span class="text-[8px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold border border-rose-200 flex items-center gap-1"><i data-lucide="shield-alert" class="w-2.5 h-2.5"></i> แบล็คลิสต์</span>';
+
+                const compStr = masterData.companies[emp.companyId] || 'ไม่ระบุ';
+                const deptStr = masterData.depts[emp.departmentId]?.name || 'ไม่ระบุ';
+                const posStr = masterData.positions[emp.positionId] || 'ไม่ระบุ';
+
+                listEl.innerHTML += `
+                    <div class="bg-white p-4 rounded-2xl shadow-sm border ${isBL ? 'border-rose-300 bg-rose-50/30' : 'border-slate-200'} flex flex-col hover:border-sky-300 transition-colors">
+                        <div class="flex items-start gap-3">
+                            <img src="${emp.photoUrl && emp.photoUrl.startsWith('data') ? emp.photoUrl : (emp.photoUrl || 'https://via.placeholder.com/150')}" class="w-12 h-12 rounded-full object-cover bg-slate-100 border border-slate-200 shadow-sm shrink-0 ${isBL ? 'grayscale opacity-80' : ''}">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex justify-between items-start">
+                                    <h4 class="font-bold text-sm ${isBL ? 'text-rose-700 line-through decoration-rose-500' : 'text-slate-800'} truncate leading-tight pr-1">${emp.fullname}</h4>
+                                    ${statusBadge}
+                                </div>
+                                <p class="text-[10px] text-slate-500 truncate my-0.5">${compStr} | ${deptStr} | ${posStr}</p>
+                                <p class="text-[10px] text-slate-400 mt-1">📞 ${emp.phone||'-'} ${emp.vehicle ? '| 🚗 '+emp.vehicle : ''}</p>
+                            </div>
+                        </div>
+                        ${isBL && emp.reason ? `<div class="mt-1.5 bg-rose-50 p-1.5 rounded-md border border-rose-100"><p class="text-[9px] text-rose-600 font-medium leading-tight"><b>เหตุผลแบน:</b> ${emp.reason}</p></div>` : ''}
+                        
+                        <div class="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+                            <button onclick="openHistoryModal('${emp.id}')" class="flex-1 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-100 text-[10px] font-bold py-1.5 rounded-lg active:scale-95 transition flex justify-center items-center gap-1">
+                                <i data-lucide="history" class="w-3 h-3"></i> ดูประวัติ
+                            </button>
+                            <button onclick="openEmpModal('${emp.id}')" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 text-[10px] font-bold py-1.5 rounded-lg active:scale-95 transition flex justify-center items-center gap-1">
+                                <i data-lucide="user-cog" class="w-3 h-3"></i> จัดการ
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            lucide.createIcons();
+        }
+
+        document.getElementById('search-emp').addEventListener('input', renderEmployees);
+
+        window.setEmpFilter = function(state) {
+            empFilterState = state;
+            ['all', 'approved', 'pending', 'banned'].forEach(btn => {
+                const el = document.getElementById(`filter-emp-${btn}`);
+                if (empFilterState === btn) {
+                    el.classList.replace('bg-slate-100', 'bg-[#00243d]');
+                    el.classList.replace('text-slate-500', 'text-white');
+                    el.classList.replace('border-slate-200', 'border-[#00243d]');
+                } else {
+                    el.classList.replace('bg-[#00243d]', 'bg-slate-100');
+                    el.classList.replace('text-white', 'text-slate-500');
+                    el.classList.replace('border-[#00243d]', 'border-slate-200');
+                }
+            });
+            renderEmployees();
+        };
+
+        window.openEmpModal = function(uid) {
+            const emp = allEmployees.find(e => e.id === uid);
+            if(!emp) return;
+            currentEmpId = uid;
+
+            document.getElementById('modal-emp-img').src = emp.photoUrl && emp.photoUrl.startsWith('data') ? emp.photoUrl : (emp.photoUrl || 'https://via.placeholder.com/150');
+            document.getElementById('modal-emp-name').innerText = emp.fullname;
+            document.getElementById('modal-emp-phone').innerText = `Tel: ${emp.phone||'-'}`;
+            
+            document.getElementById('edit-emp-status').value = emp.status;
+            document.getElementById('edit-emp-start').value = emp.startDate || '';
+            document.getElementById('edit-emp-expiry').value = emp.expireDate || '';
+            document.getElementById('edit-emp-bl-reason').value = emp.reason || '';
+            
+            document.getElementById('edit-emp-company').value = emp.companyId || '';
+            document.getElementById('edit-emp-dept').value = emp.departmentId || '';
+            document.getElementById('edit-emp-pos').value = emp.positionId || '';
+            
+            const compStr = masterData.companies[emp.companyId] || 'ยังไม่สังกัด';
+            const deptStr = masterData.depts[emp.departmentId]?.name || 'ยังไม่สังกัดแผนก';
+            document.getElementById('modal-emp-comp').innerText = `${compStr} | ${deptStr}`;
+
+            checkStatusChange();
+            toggleModal('emp-manage-modal', true);
+        }
+
+        window.checkStatusChange = function() {
+            const status = document.getElementById('edit-emp-status').value;
+            const expGroup = document.getElementById('edit-expiry-group');
+            const blGroup = document.getElementById('edit-blacklist-group');
+            const approveGroup = document.getElementById('approve-group');
+
+            expGroup.classList.add('hidden');
+            blGroup.classList.add('hidden');
+            approveGroup.classList.remove('hidden');
+
+            if(status === 'approved' || status === 'expired') {
+                expGroup.classList.remove('hidden');
+            } else if(status === 'banned') {
+                blGroup.classList.remove('hidden');
+                approveGroup.classList.add('hidden');
+            }
+        }
+
+        window.saveEmployee = async function() {
+            const status = document.getElementById('edit-emp-status').value;
+            const blReason = document.getElementById('edit-emp-bl-reason').value.trim();
+            const companyId = document.getElementById('edit-emp-company').value;
+            const deptId = document.getElementById('edit-emp-dept').value;
+            const posId = document.getElementById('edit-emp-pos').value;
+            const startDate = document.getElementById('edit-emp-start').value;
+            const expireDate = document.getElementById('edit-emp-expiry').value;
+
+            if(status === 'banned' && !blReason) return Swal.fire('ข้อมูลไม่ครบ', 'กรุณาระบุสาเหตุที่ระงับสิทธิ์การใช้งาน (แบล็คลิสต์)', 'warning');
+            if((status === 'approved' || status === 'expired') && (!companyId || !deptId || !posId || !startDate || !expireDate)) {
+                return Swal.fire('ข้อมูลไม่ครบ', 'การอนุมัติพนักงานต้องระบุ บริษัท, แผนก, ตำแหน่ง และ วันเริ่ม-หมดอายุบัตร ให้ครบถ้วน', 'warning');
+            }
+
+            Swal.fire({title:'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+            try {
+                await db.collection("users").doc(currentEmpId).update({
+                    status: status,
+                    reason: status === 'banned' ? blReason : '',
+                    companyId: companyId,
+                    departmentId: deptId,
+                    positionId: posId,
+                    startDate: startDate,
+                    expireDate: expireDate
+                });
+                toggleModal('emp-manage-modal', false);
+                Swal.fire({icon: 'success', title: 'บันทึกข้อมูลสำเร็จ', timer: 1500, showConfirmButton: false});
+            } catch (error) {
+                Swal.fire('Error', error.message, 'error');
+            }
+        }
+
+        // ==========================================
+        // Modal: History
+        // ==========================================
+        window.openHistoryModal = async function(uid) {
+            const emp = allEmployees.find(e => e.id === uid);
+            if(!emp) return;
+
+            document.getElementById('hist-img').src = emp.photoUrl && emp.photoUrl.startsWith('data') ? emp.photoUrl : (emp.photoUrl || 'https://via.placeholder.com/150');
+            document.getElementById('hist-name').innerText = emp.fullname;
+            const comp = masterData.companies[emp.companyId] || 'ไม่ระบุ';
+            const dept = masterData.depts[emp.departmentId]?.name || 'ไม่ระบุ';
+            document.getElementById('hist-details').innerText = `${comp} | ${dept}`;
+            
+            const unifiedList = document.getElementById('hist-unified-list');
+            unifiedList.innerHTML = '<div class="text-center py-6 text-slate-400 text-xs"><i data-lucide="loader-2" class="w-5 h-5 mx-auto animate-spin mb-1"></i> กำลังโหลดประวัติ...</div>';
+            lucide.createIcons();
+            toggleModal('history-modal', true);
+
+            try {
+                const snap = await db.collection("daily_records").where("uid", "==", uid).get();
+                
+                let records = [];
+                snap.forEach(doc => records.push(doc.data()));
+                records.sort((a,b) => (b.date || "").localeCompare(a.date || ""));
+                
+                // Calculate Average
+                let totalStars = 0;
+                let countStars = 0;
+                records.forEach(r => {
+                    if(r.status === 'evaluated' && r.rating) {
+                        totalStars += r.rating;
+                        countStars++;
+                    }
+                });
+                
+                const avgScore = countStars > 0 ? (totalStars / countStars).toFixed(1) : 0;
+                document.getElementById('hist-avg').innerHTML = `<i data-lucide="star" class="w-3 h-3 inline -mt-0.5 ${avgScore >= 4 ? 'text-sky-500 fill-sky-500' : (avgScore > 0 ? 'text-amber-500 fill-amber-500' : 'text-slate-400')}"></i> คะแนนเฉลี่ย: ${avgScore > 0 ? avgScore+'/5' : 'ไม่มีคะแนน'}`;
+
+                if(records.length === 0) { 
+                    unifiedList.innerHTML = '<p class="text-[10px] text-slate-400 italic text-center py-4 bg-slate-50 rounded-xl border border-slate-100">ไม่มีประวัติการเข้าทำงานในระบบ</p>'; 
+                    return; 
+                }
+
+                records = records.slice(0, 30);
+                unifiedList.innerHTML = '';
+                
+                records.forEach(h => {
+                    const statusColor = h.status === 'evaluated' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : (h.status === 'not_show' ? 'text-rose-600 bg-rose-50 border-rose-100' : 'text-sky-600 bg-sky-50 border-sky-100');
+                    let sText = h.status === 'evaluated' ? 'ประเมินแล้ว' : (h.status === 'not_show' ? 'ไม่มา' : 'รอประเมิน');
+                    
+                    let evalHtml = '';
+                    if(h.status === 'evaluated' && h.rating > 0) {
+                        evalHtml = `
+                            <div class="mt-2 pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-[10px] font-bold text-slate-500 uppercase">ผลประเมินรายวัน:</span>
+                                    <span class="text-[10px] font-bold text-amber-600 flex items-center gap-0.5 bg-amber-50 px-1.5 rounded"><i data-lucide="star" class="w-3 h-3 fill-amber-500 text-amber-500"></i> ${h.rating}/5 ดาว</span>
+                                </div>
+                                ${h.comment ? `<p class="text-[10px] text-slate-600 italic bg-white p-2 rounded-lg border border-slate-100">"${h.comment}"</p>` : ''}
+                            </div>
+                        `;
+                    }
+
+                    const dName = masterData.depts[h.deptId]?.name || '-';
+                    unifiedList.innerHTML += `
+                        <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl shadow-sm">
+                            <div class="flex justify-between items-start mb-1.5">
+                                <span class="text-xs font-bold text-[#00243d]"><i data-lucide="calendar" class="w-3 h-3 inline-block -mt-0.5 text-sky-500"></i> ${h.date}</span>
+                                <span class="text-[9px] font-bold px-2 py-0.5 rounded border ${statusColor}">${sText}</span>
+                            </div>
+                            <p class="text-[10px] text-slate-500 font-medium mb-1">แผนก: ${dName}</p>
+                            <p class="text-[10px] text-slate-500 font-medium flex gap-2"><span>IN: <strong class="text-emerald-600">${h.scanInTime||'-'}</strong></span> <span>OUT: <strong class="text-amber-600">${h.scanOutTime||'-'}</strong></span></p>
+                            ${evalHtml}
+                        </div>
+                    `;
+                });
+                lucide.createIcons();
+            } catch(e) {
+                unifiedList.innerHTML = `<div class="text-rose-500 text-xs text-center p-4">Error: ${e.message}</div>`;
+            }
+        }
+
+        // ==========================================
+        // TAB 3: Export Excel
+        // ==========================================
+        window.exportToExcel = async function() {
+            const startDateInput = document.getElementById("exportStartDate").value;
+            const endDateInput = document.getElementById("exportEndDate").value;
+            const selectedWh = document.getElementById("exportWarehouseSelect").value;
+            const selectedDept = document.getElementById("exportDeptSelect").value;
+
+            if (!startDateInput || !endDateInput) {
+                return Swal.fire('ข้อมูลไม่ครบ', 'กรุณาเลือกตั้งแต่วันที่ และ ถึงวันที่', 'warning');
+            }
+
+            Swal.fire({title:'กำลังเตรียมไฟล์...', timer:2000, didOpen: () => Swal.showLoading()});
+
+            try {
+                // ดึงข้อมูลการทำงานจริง
+                const snap = await db.collection("daily_records")
+                    .where("date", ">=", startDateInput)
+                    .where("date", "<=", endDateInput)
+                    .get();
+
+                if (snap.empty) {
+                    return Swal.fire('ไม่พบข้อมูล', 'ไม่มีประวัติคนมาทำงานในช่วงวันที่เลือก', 'info');
+                }
+
+                let records = [];
+                snap.forEach(doc => records.push(doc.data()));
+
+                let exportRecords = records.filter(r => {
+                    const u = allEmployees.find(emp => emp.id === r.uid);
+                    if(!u) return false; 
+
+                    if (selectedDept !== "all" && u.departmentId !== selectedDept) return false;
+                    if (selectedWh !== "all" && selectedDept === "all") {
+                        const deptData = masterData.depts[u.departmentId];
+                        if (!deptData || deptData.warehouseId !== selectedWh) return false;
+                    }
+
+                    return true;
+                });
+
+                if (exportRecords.length === 0) {
+                    return Swal.fire('ไม่พบข้อมูล', 'ไม่มีข้อมูลพนักงานที่ตรงกับเงื่อนไขอาคาร/แผนกที่คุณเลือก', 'info');
+                }
+
+                exportRecords.sort((a,b) => {
+                    if (a.date !== b.date) return a.date.localeCompare(b.date);
+                    return (a.scanInTime || "").localeCompare(b.scanInTime || "");
+                });
+
+                let csvContent = "\uFEFFวันที่ทำงาน,ชื่อ-นามสกุล,เบอร์โทรศัพท์,บริษัท,แผนก,ตำแหน่ง,เวลาเข้า(IN),เวลาออก(OUT),คะแนนประเมิน,คอมเมนต์\n";
+
+                exportRecords.forEach(r => {
+                    const user = allEmployees.find(emp => emp.id === r.uid);
+                    const compStr = masterData.companies[user.companyId] || '-';
+                    const deptStr = masterData.depts[user.departmentId]?.name || '-';
+                    const posStr = masterData.positions[user.positionId] || '-';
+                    
+                    csvContent += `"${r.date}","${user.fullname}","'${user.phone}","${compStr}","${deptStr}","${posStr}","${r.scanInTime||'-'}","${r.scanOutTime||'-'}","${r.rating||'-'}","${r.comment||'-'}"\n`;
+                });
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = `รายงานการทำงาน_${startDateInput}_ถึง_${endDateInput}.csv`;
+                link.click();
+
+            } catch(e) {
+                Swal.fire('Error', e.message, 'error');
+            }
+        }
+
+        // ==========================================
+        // Utilities & Navigation
+        // ==========================================
+        window.switchMainTab = function(tabName) {
+            // ป้องกันการทับซ้อน บังคับซ่อนทุกแท็บเด็ดขาด
+            document.querySelectorAll('.tab-content').forEach(el => {
+                el.classList.remove('active');
+            });
+            
+            ['requests', 'employees', 'export'].forEach(t => {
+                const btn = document.getElementById('nav-' + t);
+                if(btn) { btn.classList.remove('text-[#00243d]'); btn.classList.add('text-slate-400'); }
+            });
+
+            // แสดงเฉพาะแท็บที่เลือก
+            document.getElementById('view-' + tabName).classList.add('active');
+            const activeBtn = document.getElementById('nav-' + tabName);
+            if(activeBtn) {
+                activeBtn.classList.remove('text-slate-400');
+                activeBtn.classList.add('text-[#00243d]');
+            }
+        };
+
+        window.toggleModal = function(modalId, show = true) { 
+            const modal = document.getElementById(modalId); 
+            if(show) modal.classList.add('active'); else modal.classList.remove('active'); 
+        };
+
+        window.logout = function() {
+            localStorage.removeItem("myAppUserId");
+            localStorage.removeItem("myAppRole");
+            window.location.href = "index.html";
+        }
+
+        initHRPanel();
+
+    </script>
+</body>
+</html>

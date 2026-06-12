@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Superuser Hub - ระบบจัดการส่วนกลาง</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { font-family: 'Kanit', sans-serif; background: #0f172a; margin: 0; min-height: 100dvh; display: flex; justify-content: center; -webkit-tap-highlight-color: transparent; }
+        .app-container { width: 100%; max-width: 600px; background: #f8fafc; position: relative; display: flex; flex-direction: column; min-height: 100dvh; box-shadow: 0 0 30px rgba(0,0,0,0.3); }
+        
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        
+        .tab-content { display: none; flex-direction: column; flex-grow: 1; padding-bottom: 20px;}
+        .tab-content.active { display: flex; animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); display: none; align-items: flex-end; justify-content: center; z-index: 100; }
+        @media(min-width: 600px) { .modal-overlay { align-items: center; } }
+        .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
+        .modal-content { background: white; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; border-top-left-radius: 24px; border-top-right-radius: 24px; padding: 24px; box-shadow: 0 -10px 40px rgba(0,0,0,0.1); animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        @media(min-width: 600px) { .modal-content { border-radius: 24px; } }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+        /* Custom Input Styling */
+        .input-field { width: 100%; padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 13px; outline: none; transition: all 0.2s; background: #f8fafc; color: #334155; font-family: inherit;}
+        .input-field:focus { border-color: #8b5cf6; background: white; box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1); }
+        .input-label { display: block; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 4px; margin-left: 4px; }
+        
+        #global-loading { position: fixed; inset: 0; background: #f8fafc; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <div id="global-loading">
+            <i data-lucide="loader-2" class="w-10 h-10 text-purple-600 animate-spin mb-4"></i>
+            <h2 class="text-lg font-bold text-slate-700">กำลังเชื่อมต่อระบบ...</h2>
+            <p class="text-sm text-slate-500" id="loading-text">โหลดฐานข้อมูลหลัก</p>
+        </div>
+
+        <!-- Header (ปรับให้กระชับที่สุด) -->
+        <header class="bg-gradient-to-r from-purple-700 to-indigo-700 px-4 py-3 text-white rounded-b-2xl shadow-md shrink-0 relative z-10">
+            <div class="flex items-center justify-between">
+                <h1 class="text-base font-black tracking-wide flex items-center gap-1.5">
+                    <i data-lucide="shield" class="w-4 h-4 text-purple-300"></i> SYSTEM <span class="text-purple-300">ADMIN</span>
+                </h1>
+                <button onclick="logout()" class="text-[10px] font-medium bg-rose-600 hover:bg-rose-700 px-2 py-1 rounded-md transition shadow-sm border border-rose-500 flex items-center gap-1">
+                    <i data-lucide="log-out" class="w-3 h-3"></i> ออก
+                </button>
+            </div>
+            
+            <div class="flex overflow-x-auto hide-scroll gap-2 mt-3 pb-1 scroll-smooth snap-x" id="main-tabs-container">
+                <button onclick="switchTab('users', this)" class="tab-btn active shrink-0 snap-start bg-white text-purple-700 font-bold px-3 py-1.5 rounded-full text-xs shadow-sm transition flex items-center gap-1"><i data-lucide="users" class="w-3.5 h-3.5"></i> ผู้ใช้งาน</button>
+                <button onclick="switchTab('master', this)" class="tab-btn shrink-0 snap-start bg-purple-800/50 text-white hover:bg-purple-800 font-medium px-3 py-1.5 rounded-full text-xs transition flex items-center gap-1 border border-purple-500/30"><i data-lucide="database" class="w-3.5 h-3.5"></i> ฐานข้อมูล</button>
+                <button onclick="switchTab('export', this)" class="tab-btn shrink-0 snap-start bg-purple-800/50 text-white hover:bg-purple-800 font-medium px-3 py-1.5 rounded-full text-xs transition flex items-center gap-1 border border-purple-500/30"><i data-lucide="download" class="w-3.5 h-3.5"></i> ส่งออกข้อมูล</button>
+            </div>
+        </header>
+
+        <main class="flex-grow overflow-y-auto relative z-0 hide-scroll">
+            
+            <div id="tab-users" class="tab-content active p-3">
+                <!-- Filter Bar (ปรับให้เป็นแนวนอนบรรทัดเดียว) -->
+                <div class="bg-white p-2 rounded-xl shadow-sm border border-slate-200 mb-3 sticky top-0 z-10 flex gap-2 items-center">
+                    <div class="bg-slate-100 p-1.5 rounded-lg text-slate-400 shrink-0 ml-1">
+                        <i data-lucide="filter" class="w-3.5 h-3.5"></i>
+                    </div>
+                    <select id="roleFilter" onchange="renderUsers()" class="input-field !py-1.5 !px-2 !text-xs flex-grow border-none !bg-transparent shadow-none focus:ring-0 focus:shadow-none font-bold text-slate-700 cursor-pointer">
+                        <option value="pending" selected>🔥 รออนุมัติ (พนักงานใหม่)</option>
+                        <option value="all">แสดงทั้งหมด (ล่าสุด)</option>
+                        <option value="visitor">พนักงานซับฯ (Visitor)</option>
+                        <option value="admin">หัวหน้าซับฯ (Admin)</option>
+                        <option value="inspector">รปภ. (Inspector)</option>
+                        <option value="dept">หัวหน้าแผนก (Dept)</option>
+                        <option value="asst_dept">ผู้ช่วยหัวหน้าแผนก</option>
+                        <option value="hr">ฝ่ายบุคคล (HR)</option>
+                        <option value="safety">จป. (Safety)</option>
+                        <option value="superuser">ผู้ดูแลระบบ (Superuser)</option>
+                    </select>
+                    <div class="bg-purple-100 text-purple-700 font-bold px-3 py-1 rounded-lg flex items-center justify-center shrink-0 border border-purple-200 text-xs" id="userCount">0</div>
+                </div>
+
+                <div id="userListContainer" class="space-y-2.5">
+                    <!-- User Cards -->
+                </div>
+            </div>
+
+            <div id="tab-master" class="tab-content p-3 space-y-3">
+                <div class="bg-blue-50 text-blue-800 p-3 rounded-xl text-[11px] border border-blue-100 mb-1 flex gap-1.5 items-start">
+                    <i data-lucide="info" class="w-3.5 h-3.5 shrink-0 mt-0.5"></i>
+                    <span>ข้อมูลในหน้านี้จะถูกนำไปใช้เป็นตัวเลือกในหน้าระบบอื่นๆ</span>
+                </div>
+
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                    <h3 class="font-bold text-sm text-slate-800 flex items-center gap-1.5 mb-2.5"><i data-lucide="building-2" class="w-3.5 h-3.5 text-emerald-500"></i> อาคาร / คลังสินค้า</h3>
+                    <div class="flex gap-2 mb-2">
+                        <input type="text" id="inputWarehouse" placeholder="ชื่ออาคาร..." class="input-field py-1.5 text-xs">
+                        <button onclick="addData('warehouses', 'inputWarehouse')" class="bg-emerald-600 text-white px-3 rounded-lg font-bold active:scale-95 transition text-sm">+</button>
+                    </div>
+                    <ul id="listWarehouses" class="space-y-1.5 max-h-40 overflow-y-auto hide-scroll pr-1"></ul>
+                </div>
+
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                    <h3 class="font-bold text-sm text-slate-800 flex items-center gap-1.5 mb-2.5"><i data-lucide="folder-tree" class="w-3.5 h-3.5 text-indigo-500"></i> แผนก (ผูกกับอาคาร)</h3>
+                    <div class="flex flex-col gap-2 mb-2">
+                        <select id="selectWarehouseForDept" class="input-field py-1.5 text-xs"><option value="">-- เลือกอาคาร --</option></select>
+                        <div class="flex gap-2">
+                            <input type="text" id="inputDept" placeholder="ชื่อแผนก..." class="input-field py-1.5 text-xs">
+                            <button onclick="addDepartment()" class="bg-indigo-600 text-white px-3 rounded-lg font-bold active:scale-95 transition shrink-0 text-sm">+</button>
+                        </div>
+                    </div>
+                    <ul id="listDepartments" class="space-y-1.5 max-h-40 overflow-y-auto hide-scroll pr-1"></ul>
+                </div>
+
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                    <h3 class="font-bold text-sm text-slate-800 flex items-center gap-1.5 mb-2.5"><i data-lucide="briefcase" class="w-3.5 h-3.5 text-amber-500"></i> บริษัทซับคอนแทรค</h3>
+                    <div class="flex gap-2 mb-2">
+                        <input type="text" id="inputCompany" placeholder="ชื่อบริษัท..." class="input-field py-1.5 text-xs">
+                        <button onclick="addData('companies', 'inputCompany')" class="bg-amber-500 text-white px-3 rounded-lg font-bold active:scale-95 transition text-sm">+</button>
+                    </div>
+                    <ul id="listCompanies" class="space-y-1.5 max-h-40 overflow-y-auto hide-scroll pr-1"></ul>
+                </div>
+
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                    <h3 class="font-bold text-sm text-slate-800 flex items-center gap-1.5 mb-2.5"><i data-lucide="map-pin" class="w-3.5 h-3.5 text-rose-500"></i> จุดตรวจ (รปภ.)</h3>
+                    <div class="flex gap-2 mb-2">
+                        <input type="text" id="inputCheckpoint" placeholder="ชื่อจุดตรวจ..." class="input-field py-1.5 text-xs">
+                        <button onclick="addData('checkpoints', 'inputCheckpoint')" class="bg-rose-500 text-white px-3 rounded-lg font-bold active:scale-95 transition text-sm">+</button>
+                    </div>
+                    <ul id="listCheckpoints" class="space-y-1.5 max-h-40 overflow-y-auto hide-scroll pr-1"></ul>
+                </div>
+            </div>
+
+            <div id="tab-export" class="tab-content p-3">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                    <div class="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-3 mx-auto">
+                        <i data-lucide="file-spreadsheet" class="w-6 h-6"></i>
+                    </div>
+                    <h2 class="text-base font-bold text-center text-slate-800 mb-1">ส่งออกฐานข้อมูล</h2>
+                    <p class="text-[11px] text-center text-slate-500 mb-5">ดาวน์โหลดรายชื่อและข้อมูลผู้ใช้งานทั้งหมดในระบบ</p>
+                    
+                    <div class="space-y-3 mb-5">
+                        <div>
+                            <label class="input-label">ช่วงวันที่ลงทะเบียน</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="date" id="exportStartDate" class="input-field py-2 text-[11px]">
+                                <input type="date" id="exportEndDate" class="input-field py-2 text-[11px]">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="input-label">ตำแหน่ง (Role)</label>
+                            <select id="exportRoleSelect" class="input-field py-2 text-xs">
+                                <option value="all">-- ทุกตำแหน่ง --</option>
+                                <option value="visitor">พนักงานซับฯ (Visitor)</option>
+                                <option value="admin">หัวหน้าซับฯ (Admin)</option>
+                                <option value="inspector">รปภ. (Inspector)</option>
+                                <option value="dept">หัวหน้าแผนก (Dept)</option>
+                                <option value="asst_dept">ผู้ช่วยหัวหน้าแผนก</option>
+                                <option value="hr">ฝ่ายบุคคล (HR)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="input-label">อาคาร/คลังสินค้า</label>
+                            <select id="exportWarehouseSelect" class="input-field py-2 text-xs"><option value="all">-- ทุกอาคาร --</option></select>
+                        </div>
+                    </div>
+
+                    <button onclick="exportAllUsers()" class="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl shadow-md shadow-emerald-200 active:scale-95 transition flex justify-center items-center gap-2 text-sm">
+                        <i data-lucide="download" class="w-4 h-4"></i> ดาวน์โหลด Excel (CSV)
+                    </button>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div id="roleModal" class="modal-overlay">
+        <div class="modal-content !p-5">
+            <div class="flex justify-between items-start mb-3">
+                <div>
+                    <h3 class="text-base font-bold text-purple-700 flex items-center gap-1.5"><i data-lucide="settings-2" class="w-4 h-4"></i> กำหนดสิทธิ์</h3>
+                    <p id="modalEmpName" class="text-[11px] text-slate-500 mt-0.5 font-medium">ชื่อพนักงาน</p>
+                </div>
+                <button onclick="closeRoleModal()" class="p-1.5 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200 active:scale-90"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            
+            <div class="space-y-3">
+                <div>
+                    <label class="input-label">ตำแหน่งในระบบ <span class="text-rose-500">*</span></label>
+                    <select id="modalRole" onchange="toggleRoleOptions()" class="input-field py-2 text-xs">
+                        <option value="visitor">พนักงานซับฯ (Visitor)</option>
+                        <option value="admin">หัวหน้าซับฯ (Admin)</option>
+                        <option value="inspector">รปภ. (Inspector)</option>
+                        <option value="dept">หัวหน้าแผนก (Dept)</option>
+                        <option value="asst_dept">ผู้ช่วยหัวหน้าแผนก (Asst Dept)</option>
+                        <option value="hr">ฝ่ายบุคคล (HR)</option>
+                        <option value="safety">เจ้าหน้าที่ จป. (Safety)</option>
+                        <option value="superuser">ผู้ดูแลระบบ (Superuser)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="input-label">สถานะการใช้งาน <span class="text-rose-500">*</span></label>
+                    <select id="modalStatus" class="input-field py-2 text-xs">
+                        <option value="approved">✅ อนุมัติแล้ว (Active)</option>
+                        <option value="pending">⏳ รออนุมัติ (Pending)</option>
+                        <option value="banned">🚫 ระงับการใช้งาน (Banned)</option>
+                    </select>
+                </div>
+
+                <div id="extraCompany" class="hidden p-3 bg-amber-50 border border-amber-100 rounded-xl mt-2">
+                    <label class="input-label text-amber-700">สังกัดบริษัท <span class="text-rose-500">*</span></label>
+                    <select id="modalCompany" class="input-field py-2 text-xs border-amber-200 mt-1"></select>
+                </div>
+
+                <div id="extraDeptArea" class="hidden p-3 bg-indigo-50 border border-indigo-100 rounded-xl space-y-2 mt-2">
+                    <div>
+                        <label class="input-label text-indigo-700">1. เลือกอาคาร/คลัง <span class="text-rose-500">*</span></label>
+                        <select id="modalWarehouse" onchange="updateModalDeptDropdown()" class="input-field py-2 text-xs border-indigo-200"></select>
+                    </div>
+                    <div>
+                        <label class="input-label text-indigo-700">2. เลือกแผนกที่ดูแล/สังกัด <span class="text-rose-500">*</span></label>
+                        <select id="modalDept" class="input-field py-2 text-xs border-indigo-200">
+                            <option value="">-- กรุณาเลือกอาคารก่อน --</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="extraDateArea" class="hidden p-3 bg-emerald-50 border border-emerald-100 rounded-xl space-y-2 mt-2">
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="input-label text-emerald-700">วันที่เริ่มงาน <span class="text-rose-500">*</span></label>
+                            <input type="date" id="modalStartDate" class="input-field py-2 text-xs border-emerald-200">
+                        </div>
+                        <div>
+                            <label class="input-label text-emerald-700">วันสิ้นสุด/หมดอายุ <span class="text-rose-500">*</span></label>
+                            <input type="date" id="modalExpireDate" class="input-field py-2 text-xs border-emerald-200">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="extraCheckpoint" class="hidden p-3 bg-rose-50 border border-rose-100 rounded-xl mt-2">
+                    <label class="input-label text-rose-700">ประจำจุดตรวจ (สำหรับ รปภ.) <span class="text-rose-500">*</span></label>
+                    <select id="modalCheckpoint" class="input-field py-2 text-xs border-rose-200 mt-1"></select>
+                </div>
+
+                <div class="pt-2">
+                    <button onclick="saveRoleSetting()" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl shadow-md shadow-purple-200 active:scale-95 transition flex justify-center items-center gap-1.5 text-sm">
+                        <i data-lucide="save" class="w-4 h-4"></i> บันทึกการตั้งค่า
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="historyModal" class="modal-overlay">
+        <div class="modal-content !bg-slate-50 !p-4">
+            <div class="flex justify-between items-center mb-3 shrink-0 bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+                <div class="flex items-center gap-2.5">
+                    <img id="hist-img" src="" class="w-10 h-10 rounded-full object-cover border border-slate-200">
+                    <div>
+                        <h3 id="hist-name" class="font-bold text-slate-800 text-[13px] leading-tight">ชื่อ</h3>
+                        <p id="hist-details" class="text-[9px] text-slate-500">รายละเอียด</p>
+                    </div>
+                </div>
+                <button onclick="closeHistoryModal()" class="p-1.5 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200 active:scale-90"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            
+            <h4 class="text-[10px] font-bold text-slate-500 uppercase ml-1 mb-2 flex items-center gap-1"><i data-lucide="history" class="w-3 h-3"></i> ประวัติ 30 วันล่าสุด</h4>
+            <div id="hist-unified-list" class="space-y-2 pb-2">
+                </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. Firebase & State
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyArJLTChk1lyzfTph6ELTdzKIdb4sQ_ybc",
+            authDomain: "maersk-mcl-v2.firebaseapp.com",
+            projectId: "maersk-mcl-v2",
+            storageBucket: "maersk-mcl-v2.firebasestorage.app",
+            messagingSenderId: "447590679734",
+            appId: "1:447590679734:web:f6881338981f9ae86bd217"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        let allUsers = [];
+        let masterData = { companies: {}, warehouses: {}, departments: {}, positions: {}, checkpoints: {} };
+        let currentEditingUid = null;
+
+        const roleNames = {
+            'visitor': 'พนักงานซับฯ', 'admin': 'Admin บริษัท', 'inspector': 'รปภ.',
+            'dept': 'หัวหน้าแผนก', 'asst_dept': 'ผู้ช่วยหัวหน้าแผนก', 'hr': 'ฝ่ายบุคคล',
+            'safety': 'จป.', 'superuser': 'Superuser'
+        };
+
+        // ==========================================
+        // 2. Initialization
+        // ==========================================
+        async function initializeSystem() {
+            lucide.createIcons();
+            
+            // โหลด Master Data พร้อมกัน
+            listenToMasterData('companies', 'listCompanies');
+            listenToMasterData('warehouses', 'listWarehouses');
+            listenToMasterData('departments', 'listDepartments', true);
+            listenToMasterData('checkpoints', 'listCheckpoints');
+
+            // โหลดผู้ใช้
+            db.collection("users").orderBy("registeredAt", "desc").limit(300).onSnapshot(snapshot => {
+                allUsers = [];
+                snapshot.forEach(doc => allUsers.push({ id: doc.id, ...doc.data() }));
+                renderUsers();
+                document.getElementById('global-loading').style.display = 'none';
+            });
+        }
+
+        // ==========================================
+        // TAB 1: Users & Rendering
+        // ==========================================
+        function renderUsers() {
+            const container = document.getElementById("userListContainer");
+            const filterRole = document.getElementById("roleFilter").value;
+            container.innerHTML = "";
+            
+            let filteredUsers = allUsers;
+            if (filterRole === "pending") filteredUsers = allUsers.filter(u => u.status === 'pending');
+            else if (filterRole !== "all") filteredUsers = allUsers.filter(u => u.role === filterRole);
+
+            document.getElementById("userCount").innerText = filteredUsers.length;
+
+            if (filteredUsers.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 bg-white rounded-xl border border-slate-200"><i data-lucide="inbox" class="w-8 h-8 text-slate-300 mx-auto mb-2"></i><p class="text-xs text-slate-500 font-medium">ไม่พบผู้ใช้งาน</p></div>`;
+                lucide.createIcons();
+                return;
+            }
+
+            filteredUsers.forEach(user => {
+                const roleName = roleNames[user.role] || user.role;
+                
+                let sColor = '', sText = '', sIcon = '';
+                if (user.status === 'approved') { sColor = 'text-emerald-600 bg-emerald-50 border-emerald-200'; sText = 'อนุมัติ'; sIcon = 'check-circle'; } 
+                else if (user.status === 'banned') { sColor = 'text-rose-600 bg-rose-50 border-rose-200'; sText = 'แบน'; sIcon = 'slash'; } 
+                else { sColor = 'text-amber-600 bg-amber-50 border-amber-200'; sText = 'รออนุมัติ'; sIcon = 'clock'; }
+
+                let detailHtml = '';
+                if(user.role === 'visitor') {
+                    detailHtml = `<span class="truncate">🏢 ${masterData.companies[user.companyId]?.name||'-'}</span> <span class="truncate">📂 ${masterData.departments[user.departmentId]?.name||'-'}</span>`;
+                } else if(user.role === 'admin' && user.companyId) {
+                    detailHtml = `<span class="truncate text-amber-600">🏢 ดูแล: ${masterData.companies[user.companyId]?.name||'-'}</span>`;
+                } else if((user.role === 'dept' || user.role === 'asst_dept') && user.managedDeptId) {
+                    detailHtml = `<span class="truncate text-indigo-600">📂 ดูแล: ${masterData.departments[user.managedDeptId]?.name||'-'}</span>`;
+                } else if(user.role === 'inspector' && user.checkpointId) {
+                    detailHtml = `<span class="truncate text-rose-600">📍 จุดตรวจ: ${masterData.checkpoints[user.checkpointId]?.name||'-'}</span>`;
+                }
+
+                container.innerHTML += `
+                    <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-200 ${user.status==='banned'?'opacity-60':''}">
+                        <div class="flex items-start gap-2.5 mb-2 pb-2 border-b border-slate-50">
+                            <img src="${user.photoUrl || 'https://via.placeholder.com/50'}" class="w-10 h-10 rounded-full object-cover bg-slate-100 shrink-0">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex justify-between items-start">
+                                    <h4 class="font-bold text-[13px] text-slate-800 truncate pr-2">${user.fullname}</h4>
+                                    <span class="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${sColor}"><i data-lucide="${sIcon}" class="w-2.5 h-2.5"></i>${sText}</span>
+                                </div>
+                                <p class="text-[9px] text-slate-500 mt-0.5">📞 ${user.phone}</p>
+                                <div class="text-[9px] font-medium text-slate-600 mt-1 flex gap-1.5 w-full overflow-hidden items-center">
+                                    <span class="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200 shrink-0">${roleName}</span>
+                                    ${detailHtml}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex gap-1.5">
+                            <button onclick="openHistoryModal('${user.id}')" class="flex-1 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-bold rounded-lg transition flex justify-center items-center gap-1"><i data-lucide="file-text" class="w-3 h-3"></i> ประวัติ</button>
+                            <button onclick="openRoleModal('${user.id}')" class="flex-1 py-1.5 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 text-[10px] font-bold rounded-lg transition flex justify-center items-center gap-1"><i data-lucide="settings-2" class="w-3 h-3"></i> ตั้งสิทธิ์</button>
+                            ${user.status !== 'banned' ? `<button onclick="banUser('${user.id}')" class="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 rounded-lg transition"><i data-lucide="slash" class="w-3 h-3"></i></button>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            lucide.createIcons();
+        }
+
+        async function banUser(uid) {
+            const res = await Swal.fire({ title: 'ระงับการใช้งาน?', text: "ผู้ใช้นี้จะไม่สามารถเข้าสู่ระบบได้อีก", icon: 'warning', showCancelButton: true, confirmButtonColor: '#e11d48', confirmButtonText: 'ยืนยันแบน' });
+            if(res.isConfirmed) {
+                try { await db.collection("users").doc(uid).update({ status: 'banned' }); } 
+                catch (e) { Swal.fire('Error', e.message, 'error'); }
+            }
+        }
+
+        // ==========================================
+        // Modal: Role Assignment (Cascading Logic)
+        // ==========================================
+        function populateDropdown(selectId, dataObj, placeholder) {
+            const el = document.getElementById(selectId);
+            el.innerHTML = `<option value="">-- ${placeholder} --</option>`;
+            Object.keys(dataObj).forEach(id => {
+                el.innerHTML += `<option value="${id}">${dataObj[id].name}</option>`;
+            });
+            // Update export dropdowns concurrently
+            if(selectId === 'modalWarehouse') populateDropdown('exportWarehouseSelect', dataObj, 'ทุกอาคาร');
+        }
+
+        function updateModalDeptDropdown() {
+            const whId = document.getElementById('modalWarehouse').value;
+            const deptSelect = document.getElementById('modalDept');
+            deptSelect.innerHTML = '<option value="">-- เลือกแผนก --</option>';
+            if (!whId) return;
+
+            Object.entries(masterData.departments).forEach(([id, dept]) => {
+                if (dept.warehouseId === whId) {
+                    deptSelect.innerHTML += `<option value="${id}">${dept.name}</option>`;
+                }
+            });
+        }
+
+        function openRoleModal(uid) {
+            const user = allUsers.find(u => u.id === uid);
+            if(!user) return;
+            currentEditingUid = uid;
+            
+            // Populate fresh data
+            populateDropdown('modalCompany', masterData.companies, 'เลือกบริษัท');
+            populateDropdown('modalWarehouse', masterData.warehouses, 'เลือกอาคาร/คลัง');
+            populateDropdown('modalCheckpoint', masterData.checkpoints, 'เลือกจุดตรวจ');
+            
+            document.getElementById("modalEmpName").innerText = `${user.fullname} (${user.phone})`;
+            document.getElementById("modalRole").value = user.role;
+            document.getElementById("modalStatus").value = user.status || 'pending';
+            
+            // Prefill existing data
+            if(user.companyId) document.getElementById("modalCompany").value = user.companyId;
+            if(user.checkpointId) document.getElementById("modalCheckpoint").value = user.checkpointId;
+            document.getElementById("modalStartDate").value = user.startDate || '';
+            document.getElementById("modalExpireDate").value = user.expireDate || '';
+            
+            // Logic สำหรับหา Warehouse จาก Dept แล้ว Prefill (รองรับทั้ง Visitor และ Head)
+            let targetDeptId = (user.role === 'visitor') ? user.departmentId : user.managedDeptId;
+            if(targetDeptId && masterData.departments[targetDeptId]) {
+                const whId = masterData.departments[targetDeptId].warehouseId;
+                document.getElementById('modalWarehouse').value = whId;
+                updateModalDeptDropdown(); // Generate depts for this warehouse
+                document.getElementById('modalDept').value = targetDeptId;
+            } else {
+                document.getElementById('modalWarehouse').value = "";
+                updateModalDeptDropdown();
+            }
+
+            toggleRoleOptions();
+            document.getElementById("roleModal").classList.add("active");
+        }
+
+        function closeRoleModal() { document.getElementById("roleModal").classList.remove("active"); currentEditingUid = null; }
+
+        function toggleRoleOptions() {
+            const r = document.getElementById("modalRole").value;
+            document.getElementById("extraCompany").style.display = (r === 'admin' || r === 'visitor') ? 'block' : 'none';
+            document.getElementById("extraDeptArea").style.display = (r === 'dept' || r === 'asst_dept' || r === 'visitor') ? 'block' : 'none';
+            document.getElementById("extraDateArea").style.display = (r === 'visitor') ? 'block' : 'none';
+            document.getElementById("extraCheckpoint").style.display = (r === 'inspector') ? 'block' : 'none';
+        }
+
+        async function saveRoleSetting() {
+            if(!currentEditingUid) return;
+            const newRole = document.getElementById("modalRole").value;
+            const newStatus = document.getElementById("modalStatus").value;
+            let payload = { role: newRole, status: newStatus };
+
+            if(newRole === 'admin') {
+                const val = document.getElementById("modalCompany").value;
+                if(!val) return Swal.fire('ข้อมูลไม่ครบ', "กรุณาระบุ 'บริษัท' สำหรับ Admin", 'warning');
+                payload.companyId = val;
+            } 
+            else if (newRole === 'visitor') {
+                const compId = document.getElementById("modalCompany").value;
+                const whId = document.getElementById("modalWarehouse").value;
+                const dpId = document.getElementById("modalDept").value;
+                const sDate = document.getElementById("modalStartDate").value;
+                const eDate = document.getElementById("modalExpireDate").value;
+
+                if(!compId || !whId || !dpId || !sDate || !eDate) {
+                    return Swal.fire('ข้อมูลไม่ครบ', "กรุณาระบุข้อมูลสังกัดและวันที่ให้ครบถ้วน สำหรับพนักงานซับฯ", 'warning');
+                }
+                payload.companyId = compId;
+                payload.departmentId = dpId;
+                payload.startDate = sDate;
+                payload.expireDate = eDate;
+            }
+            else if(newRole === 'dept' || newRole === 'asst_dept') {
+                const whId = document.getElementById("modalWarehouse").value;
+                const dpId = document.getElementById("modalDept").value;
+                if(!whId || !dpId) return Swal.fire('ข้อมูลไม่ครบ', "กรุณาระบุ 'อาคาร' และ 'แผนก'", 'warning');
+                payload.managedWarehouseId = whId;
+                payload.managedDeptId = dpId;
+            } 
+            else if(newRole === 'inspector') {
+                const cpId = document.getElementById("modalCheckpoint").value;
+                if(!cpId) return Swal.fire('ข้อมูลไม่ครบ', "กรุณาระบุ 'จุดตรวจ' สำหรับ รปภ.", 'warning');
+                payload.checkpointId = cpId;
+            }
+
+            Swal.fire({ title: 'กำลังบันทึก...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+            try {
+                await db.collection("users").doc(currentEditingUid).update(payload);
+                closeRoleModal();
+                Swal.fire({icon: 'success', title: 'บันทึกสำเร็จ', timer: 1500, showConfirmButton: false});
+            } catch (e) { Swal.fire('Error', e.message, 'error'); }
+        }
+
+        // ==========================================
+        // Modal: History
+        // ==========================================
+        async function openHistoryModal(uid) {
+            const user = allUsers.find(u => u.id === uid);
+            if(!user) return;
+            
+            document.getElementById('hist-img').src = user.photoUrl || 'https://via.placeholder.com/150';
+            document.getElementById('hist-name').innerText = user.fullname;
+            const comp = masterData.companies[user.companyId]?.name || '-';
+            const dept = masterData.departments[user.departmentId]?.name || '-';
+            document.getElementById('hist-details').innerText = `${comp} | ${dept}`;
+            
+            const container = document.getElementById("hist-unified-list");
+            container.innerHTML = "<div class='text-center py-6 text-slate-400 text-[10px]'><i data-lucide='loader-2' class='w-4 h-4 mx-auto animate-spin mb-1'></i> กำลังโหลด...</div>";
+            lucide.createIcons();
+            
+            document.getElementById('historyModal').classList.add('active');
+
+            try {
+                const snap = await db.collection("daily_records").where("uid", "==", uid).get();
+                if(snap.empty) { container.innerHTML = "<div class='bg-emerald-50 text-emerald-600 p-3 rounded-lg text-center text-[10px] font-bold border border-emerald-100'>✨ พนักงานใหม่ (ยังไม่มีประวัติ)</div>"; return; }
+                
+                let records = [];
+                snap.forEach(doc => records.push(doc.data()));
+                records.sort((a,b) => (b.date || "").localeCompare(a.date || ""));
+                records = records.slice(0, 30);
+                
+                container.innerHTML = "";
+                records.forEach(d => {
+                    const stars = d.rating ? "★".repeat(d.rating) + "☆".repeat(5-d.rating) : "";
+                    let statusHtml = '';
+                    if(d.status === 'evaluated') statusHtml = `<span class="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded text-[8px] font-bold">ประเมินแล้ว</span> <span class="text-amber-500 text-[9px]">${stars}</span>`;
+                    else if(d.status === 'not_show') statusHtml = `<span class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded text-[8px] font-bold">ไม่มา/ละทิ้งงาน</span>`;
+                    else statusHtml = `<span class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[8px] font-bold">รอประเมิน</span>`;
+
+                    const dName = masterData.depts[d.deptId]?.name || '-';
+
+                    container.innerHTML += `
+                        <div class="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-[11px] font-bold text-slate-700"><i data-lucide="calendar" class="w-3 h-3 inline text-indigo-500 mb-0.5"></i> ${d.date}</span>
+                                ${statusHtml}
+                            </div>
+                            <p class="text-[9px] text-slate-500 mb-1 truncate">📂 แผนก: ${dName}</p>
+                            <p class="text-[9px] font-medium text-slate-600 bg-slate-50 p-1.5 rounded-md inline-block w-full">
+                                IN: <strong class="text-emerald-600">${d.scanInTime||'-'}</strong> &nbsp;|&nbsp; OUT: <strong class="text-amber-600">${d.scanOutTime||'-'}</strong>
+                            </p>
+                            ${d.comment ? `<p class="text-[9px] mt-1 text-slate-500 italic">💬 "${d.comment}"</p>` : ''}
+                        </div>
+                    `;
+                });
+                lucide.createIcons();
+            } catch(e) { container.innerHTML = `<div class="text-rose-500 text-[10px] text-center p-3">Error: ${e.message}</div>`; }
+        }
+
+        function closeHistoryModal() { document.getElementById("historyModal").classList.remove("active"); }
+
+        // ==========================================
+        // TAB 2: Master Data Management
+        // ==========================================
+        function listenToMasterData(colName, listId, isDept = false) {
+            db.collection(colName).orderBy("name").onSnapshot(snap => {
+                masterData[colName] = {};
+                const ul = document.getElementById(listId);
+                if(ul) ul.innerHTML = "";
+
+                snap.forEach(doc => {
+                    const data = doc.data();
+                    masterData[colName][doc.id] = data;
+                    if(ul) {
+                        let subInfo = "";
+                        if(isDept && data.warehouseId) {
+                            subInfo = `<p class="text-[9px] text-slate-400 mt-0.5">📍 ${masterData.warehouses[data.warehouseId]?.name || 'ไม่ทราบอาคาร'}</p>`;
+                        }
+                        ul.innerHTML += `
+                            <li class="flex justify-between items-center p-2.5 bg-slate-50 rounded-lg border border-slate-100 text-xs font-medium text-slate-700">
+                                <div>${data.name} ${subInfo}</div>
+                                <button onclick="deleteData('${colName}', '${doc.id}')" class="p-1.5 text-rose-400 hover:bg-rose-100 hover:text-rose-600 rounded-md transition"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                            </li>
+                        `;
+                    }
+                });
+                lucide.createIcons();
+                // Update dropdowns if needed
+                if(colName === 'warehouses') populateDropdown('selectWarehouseForDept', masterData.warehouses, 'เลือกอาคาร');
+            });
+        }
+
+        async function addData(colName, inputId) {
+            const input = document.getElementById(inputId);
+            const val = input.value.trim();
+            if(!val) return;
+            try { await db.collection(colName).add({ name: val }); input.value = ""; } 
+            catch (e) { Swal.fire('Error', e.message, 'error'); }
+        }
+
+        async function addDepartment() {
+            const val = document.getElementById("inputDept").value.trim();
+            const whId = document.getElementById("selectWarehouseForDept").value;
+            if(!val || !whId) return Swal.fire('ข้อมูลไม่ครบ', 'กรุณาเลือกอาคารและพิมพ์ชื่อแผนก', 'warning');
+            try { 
+                await db.collection("departments").add({ name: val, warehouseId: whId }); 
+                document.getElementById("inputDept").value = ""; 
+            } 
+            catch (e) { Swal.fire('Error', e.message, 'error'); }
+        }
+
+        async function deleteData(colName, docId) {
+            const res = await Swal.fire({ title: 'ลบข้อมูล?', text: "ลบแล้วจะไม่สามารถกู้คืนได้", icon: 'warning', showCancelButton: true, confirmButtonColor: '#e11d48' });
+            if(res.isConfirmed) {
+                try { await db.collection(colName).doc(docId).delete(); } 
+                catch (e) { Swal.fire('Error', e.message, 'error'); }
+            }
+        }
+
+        // ==========================================
+        // TAB 3: Export Excel
+        // ==========================================
+        function exportAllUsers() {
+            if(allUsers.length === 0) return Swal.fire('ไม่มีข้อมูล', 'ไม่พบรายชื่อผู้ใช้งานในระบบ', 'info');
+            Swal.fire({ title: 'กำลังเตรียมไฟล์...', timer: 1500, didOpen: () => Swal.showLoading() });
+            
+            setTimeout(() => {
+                let csvContent = "\uFEFF"; 
+                csvContent += "วันที่ลงทะเบียน,ชื่อ-นามสกุล,เบอร์โทรศัพท์,บัตรประชาชน,ตำแหน่ง (Role),สถานะ,บริษัท,แผนก,จุดตรวจ\n";
+
+                allUsers.forEach(u => {
+                    const dStr = u.registeredAt ? u.registeredAt.toDate().toLocaleDateString('th-TH') : '-';
+                    const rStr = roleNames[u.role] || u.role;
+                    const statStr = u.status === 'approved' ? 'อนุมัติ' : (u.status === 'banned' ? 'แบน' : 'รอ');
+                    
+                    let cName = masterData.companies[u.companyId]?.name || '-';
+                    let dpName = masterData.departments[u.departmentId]?.name || '-';
+                    if(u.role === 'dept' || u.role === 'asst_dept') dpName = masterData.departments[u.managedDeptId]?.name || '-';
+                    let cpName = masterData.checkpoints[u.checkpointId]?.name || '-';
+
+                    csvContent += `"${dStr}","${u.fullname}","'${u.phone}","'${u.idCard||'-'}","${rStr}","${statStr}","${cName}","${dpName}","${cpName}"\n`;
+                });
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = `User_Export_${new Date().toISOString().split('T')[0]}.csv`;
+                link.click();
+            }, 1000);
+        }
+
+        // Navigation
+        function switchTab(tabId, btn) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('bg-white', 'text-purple-700', 'shadow-md', 'active');
+                el.classList.add('bg-purple-800/50', 'text-white', 'border', 'border-purple-500/30');
+            });
+
+            document.getElementById('tab-' + tabId).classList.add('active');
+            btn.classList.remove('bg-purple-800/50', 'text-white', 'border', 'border-purple-500/30');
+            btn.classList.add('bg-white', 'text-purple-700', 'shadow-md', 'active');
+            btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+
+        window.logout = function() {
+            localStorage.removeItem("myAppUserId");
+            localStorage.removeItem("myAppRole");
+            window.location.replace("index.html");
+        }
+
+        // Start
+        initializeSystem();
+
+    </script>
+</body>
+</html>

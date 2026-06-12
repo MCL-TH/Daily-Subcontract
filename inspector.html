@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inspector Scanner</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- เรียกใช้ Library สแกน QR Code -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+    <!-- เรียกใช้ Firebase (Compat Version เพื่อให้ตรงกับระบบหลัก) -->
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { background: #000; margin: 0; font-family: sans-serif; overflow: hidden; }
+        /* ปรับแต่งให้ตัวกล้องจาก Library เต็มจอ */
+        #reader { width: 100%; height: 100vh; border: none; }
+        #reader video { object-fit: cover; height: 100vh; width: 100vw; }
+        #reader__dashboard_section_csr span { color: white !important; }
+        #reader__dashboard_section_swaplink { color: #3498db !important; }
+    </style>
+</head>
+<body class="flex justify-center h-screen">
+    
+    <div class="w-full max-w-[420px] relative h-full">
+        <!-- พื้นที่กล้อง -->
+        <div id="reader" class="absolute inset-0 z-0"></div>
+        
+        <!-- ชื่อ รปภ. ด้านซ้ายบน -->
+        <div class="absolute top-4 left-4 z-10 bg-black/50 text-white px-3 py-1 rounded-full text-xs" id="inspector-name">กำลังโหลด...</div>
+        
+        <!-- แผ่น Overlay แสดงผลลัพธ์ -->
+        <div id="result-overlay" class="absolute inset-0 bg-black/80 z-50 hidden flex-col justify-end">
+            <div id="result-card" class="bg-white w-full rounded-t-3xl p-6 pb-8 text-center transition-all duration-300">
+                <img id="res-photo" src="" class="w-20 h-20 rounded-xl mx-auto mb-3 object-cover bg-slate-100 shadow-md">
+                <h3 id="res-name" class="text-xl font-bold text-slate-800">...</h3>
+                <p id="res-info" class="text-sm text-slate-500 mb-4">...</p>
+                
+                <div id="action-buttons" class="grid grid-cols-2 gap-3 hidden">
+                    <button onclick="logAccess('IN')" class="bg-emerald-600 active:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-lg transform active:scale-95 transition-all">เข้า (IN)</button>
+                    <button onclick="logAccess('OUT')" class="bg-rose-600 active:bg-rose-700 text-white font-bold py-3 rounded-xl shadow-lg transform active:scale-95 transition-all">ออก (OUT)</button>
+                </div>
+                
+                <div id="res-alert" class="hidden p-3 rounded-xl font-bold mt-3"></div>
+                <button onclick="resumeScanner()" class="w-full mt-3 py-3 bg-slate-100 active:bg-slate-200 text-slate-500 font-bold rounded-xl transform active:scale-95 transition-all">ยกเลิก / สแกนใหม่</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. ตั้งค่า Firebase ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyArJLTChk1lyzfTph6ELTdzKIdb4sQ_ybc",
+            authDomain: "maersk-mcl-v2.firebaseapp.com",
+            projectId: "maersk-mcl-v2",
+            storageBucket: "maersk-mcl-v2.firebasestorage.app",
+            messagingSenderId: "447590679734",
+            appId: "1:447590679734:web:f6881338981f9ae86bd217",
+            measurementId: "G-9CPJJVL2G6"
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // --- 2. ตัวแปรระบบ ---
+        let scanner = null;
+        let myName = 'รปภ.';
+        let inspectorUid = null;
+        let scannedUser = null;
+        let masterData = { companies: {}, depts: {} };
+
+        // --- 3. ฟังก์ชันเริ่มต้น ---
+        async function init() {
+            // โหลดสิทธิ์
+            const urlParams = new URLSearchParams(window.location.search);
+            inspectorUid = urlParams.get('uid') || localStorage.getItem('myAppUserId');
+
+            if (!inspectorUid) {
+                alert("กรุณาเข้าสู่ระบบผ่านหน้าแรก");
+                window.location.replace("index.html");
+                return;
+            }
+
+            try {
+                const userDoc = await db.collection("users").doc(inspectorUid).get();
+                if (userDoc.exists) {
+                    myName = userDoc.data().fullname || 'รปภ.';
+                    document.getElementById('inspector-name').innerText = `จุดตรวจ: ${myName}`;
+                }
+
+                // โหลดชื่อบริษัท/แผนก
+                const [compSnap, deptSnap] = await Promise.all([
+                    db.collection("companies").get(),
+                    db.collection("departments").get()
+                ]);
+                compSnap.forEach(doc => masterData.companies[doc.id] = doc.data().name);
+                deptSnap.forEach(doc => masterData.depts[doc.id] = doc.data().name);
+
+                // เริ่มเปิดกล้องสแกน
+                scanner = new Html5Qrcode("reader");
+                scanner.start(
+                    { facingMode: "environment" }, 
+                    { fps: 10, qrbox: { width: 250, height: 250 } }, 
+                    onScanSuccess, 
+                    undefined
+                );
+
+            } catch (error) {
+                console.error("Error init:", error);
+            }
+        }
+
+        // --- 4. เมื่อสแกนคิวอาร์โค้ดสำเร็จ ---
+        async function onScanSuccess(qrText) {
+            scanner.pause(true); // หยุดกล้องชั่วคราว
+            
+            try {
+                // qrText ในระบบเราที่สร้างจาก badge.html คือรหัส UID โดยตรง
+                const userDoc = await db.collection("users").doc(qrText).get();
+                
+                if (!userDoc.exists) {
+                    alert('❌ ไม่พบรหัสพนักงานนี้ในระบบ');
+                    resumeScanner();
+                    return;
+                }
+
+                scannedUser = userDoc.data();
+                scannedUser.id = userDoc.id;
+                showCard();
+
+            } catch (error) {
+                alert('เกิดข้อผิดพลาด: ' + error.message);
+                resumeScanner();
+            }
+        }
+
+        // --- 5. แสดงผลลัพธ์บนหน้าจอ ---
+        function showCard() {
+            const compStr = masterData.companies[scannedUser.companyId] || 'ไม่ระบุ';
+            const deptStr = masterData.depts[scannedUser.departmentId] || '-';
+            
+            document.getElementById('res-photo').src = scannedUser.photoUrl || 'https://via.placeholder.com/150';
+            document.getElementById('res-name').innerText = scannedUser.fullname;
+            document.getElementById('res-info').innerText = `${compStr} | ${deptStr} | รถ: ${scannedUser.vehicle || '-'}`;
+
+            const card = document.getElementById('result-card');
+            const btns = document.getElementById('action-buttons');
+            const alertBox = document.getElementById('res-alert');
+            
+            // รีเซ็ตคลาส
+            btns.classList.add('hidden'); 
+            alertBox.classList.add('hidden');
+            card.className = "bg-white w-full rounded-t-3xl p-6 pb-8 text-center transition-all duration-300 transform translate-y-0";
+
+            // ตรวจสอบสถานะและเปลี่ยนสีการ์ด
+            if (scannedUser.status === 'approved') {
+                // สีเขียว
+                card.classList.add('bg-emerald-50'); 
+                btns.classList.remove('hidden');
+            } else if (scannedUser.status === 'banned') {
+                // สีแดง
+                card.classList.add('bg-rose-50'); 
+                alertBox.className = "p-3 rounded-xl font-bold mt-3 bg-rose-100 text-rose-700 block border border-rose-300"; 
+                alertBox.innerText = "🚫 ถูกระงับสิทธิ์ ห้ามเข้าพื้นที่!";
+            } else {
+                // สีเทา (รออนุมัติ)
+                card.classList.add('bg-slate-50'); 
+                alertBox.className = "p-3 rounded-xl font-bold mt-3 bg-slate-200 text-slate-700 block border border-slate-300"; 
+                alertBox.innerText = "⏳ บัตรยังไม่ได้รับการอนุมัติ";
+            }
+
+            document.getElementById('result-overlay').classList.remove('hidden'); 
+            document.getElementById('result-overlay').classList.add('flex');
+        }
+
+        // --- 6. ฟังก์ชันต่างๆ ---
+        window.resumeScanner = () => { 
+            document.getElementById('result-overlay').classList.add('hidden'); 
+            document.getElementById('result-overlay').classList.remove('flex'); 
+            scannedUser = null;
+            scanner.resume(); 
+        };
+
+        window.logAccess = async (action) => {
+            if (!scannedUser) return;
+            
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0];
+            const timeStr = now.toLocaleTimeString('th-TH');
+            const uid = scannedUser.id;
+
+            try {
+                // บันทึกแบบเดียวกับเวอร์ชันเดิม เพื่อให้วิ่งเข้าหน้า Dept.html ได้
+                if (action === 'IN') {
+                    await db.collection("daily_records").add({
+                        uid: uid,
+                        deptId: scannedUser.departmentId || '',
+                        companyId: scannedUser.companyId || '',
+                        date: dateStr,
+                        scanInTime: timeStr,
+                        status: 'in', // สถานะ 'in' จะวิ่งไปหาหัวหน้าแผนกให้ประเมิน
+                        inspectorId: inspectorUid
+                    });
+                    alert(`✅ บันทึกเข้างาน (IN) สำเร็จ!`);
+                } 
+                else if (action === 'OUT') {
+                    const snap = await db.collection("daily_records")
+                        .where("uid", "==", uid)
+                        .where("date", "==", dateStr)
+                        .orderBy("scanInTime", "desc").limit(1).get();
+
+                    if (!snap.empty) {
+                        const recordId = snap.docs[0].id;
+                        await db.collection("daily_records").doc(recordId).update({ scanOutTime: timeStr });
+                    } else {
+                        await db.collection("daily_records").add({
+                            uid: uid,
+                            deptId: scannedUser.departmentId || '',
+                            companyId: scannedUser.companyId || '',
+                            date: dateStr,
+                            scanOutTime: timeStr,
+                            status: 'out_only',
+                            inspectorId: inspectorUid
+                        });
+                    }
+                    alert(`🟠 บันทึกออกงาน (OUT) สำเร็จ!`);
+                }
+                resumeScanner();
+            } catch (error) {
+                alert("บันทึกไม่สำเร็จ: " + error.message);
+                resumeScanner();
+            }
+        };
+
+        init();
+    </script>
+</body>
+</html>
