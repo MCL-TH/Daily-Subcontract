@@ -878,5 +878,92 @@
         initDeptPanel();
 
     </script>
+
+<!-- /feature-bev: notification library -->
+<script src="notification.js"></script>
+<script>
+// /feature-bev T1 — patch submitQuotaRequest to send notification after Firestore write
+(function() {
+    const _orig = window.submitQuotaRequest;
+    window.submitQuotaRequest = async function(e) {
+        // ดึงข้อมูล HR ที่เลือกก่อน submit (เพราะ _orig จะ reset form)
+        const hrSelect = document.getElementById("qHrSelect");
+        const hrFsUid  = hrSelect?.value || "";
+        const hrName   = hrSelect?.options[hrSelect.selectedIndex]?.text || "—";
+        const campaignName = document.getElementById("qCampaign")?.value || "—";
+        const startDate    = document.getElementById("qStartDate")?.value || "—";
+        const endDate      = document.getElementById("qEndDate")?.value || "—";
+        const amount       = parseInt(document.getElementById("qAmount")?.value) || 0;
+        const salary       = parseInt(document.getElementById("wBase")?.value) || 0;
+        const shift        = parseInt(document.getElementById("wShift")?.value) || 0;
+
+        // เรียก original function ก่อน (Firestore write + Swal)
+        await _orig.call(this, e);
+
+        // ดึง lineUid ของ HR จาก Firestore แล้วส่ง notification
+        try {
+            if (!hrFsUid) return;
+            const hrDoc = await db.collection("users").doc(hrFsUid).get();
+            const hrLineUid = hrDoc.exists ? hrDoc.data().lineUid || null : null;
+
+            // ดึงชื่อแผนกและคลังจาก deptHeadData (global ใน dept.html)
+            const deptName = (typeof deptHeadData !== "undefined" && deptHeadData.deptName) ? deptHeadData.deptName : "—";
+            const whName   = (typeof masterData !== "undefined" && masterData.warehouses &&
+                              deptHeadData?.managedWarehouseId) ?
+                              masterData.warehouses[deptHeadData.managedWarehouseId] || "—" : "—";
+            const managerName = (typeof deptHeadData !== "undefined") ? deptHeadData.fullname || "—" : "—";
+
+            await Notif.quotaRequest({
+                action        : "created",
+                quotaRequestId: "",          // doc id ไม่สำคัญสำหรับ flex link — ใช้ filter ใน hr.html ได้
+                hrLineUid,
+                deptName,
+                warehouseName : whName,
+                amount,
+                startDate, endDate,
+                salary, shiftAllowance: shift,
+                managerName,
+            });
+        } catch (nErr) { console.warn("[Notif T1 created]", nErr); }
+    };
+
+    // patch confirmCancelQuota → T1 cancelled
+    const _origCancel = window.confirmCancelQuota;
+    window.confirmCancelQuota = async function() {
+        // cancelTargetId อยู่ใน scope ของ dept.html — เราดึงจาก Firestore ก่อน cancel
+        let qData = {};
+        try {
+            if (typeof cancelTargetId !== "undefined" && cancelTargetId) {
+                const snap = await db.collection("quota_requests").doc(cancelTargetId).get();
+                qData = snap.exists ? snap.data() : {};
+            }
+        } catch (_) {}
+
+        await _origCancel.call(this);
+
+        try {
+            if (!qData.assignedHrId) return;
+            const hrDoc = await db.collection("users").doc(qData.assignedHrId).get();
+            const hrLineUid = hrDoc.exists ? hrDoc.data().lineUid || null : null;
+            const managerName = (typeof deptHeadData !== "undefined") ? deptHeadData.fullname || "—" : "—";
+            const deptName    = (typeof deptHeadData !== "undefined") ? deptHeadData.deptName || "—" : "—";
+
+            await Notif.quotaRequest({
+                action        : "cancelled",
+                quotaRequestId: cancelTargetId || "",
+                hrLineUid,
+                deptName,
+                warehouseName : "—",
+                amount        : qData.amount || 0,
+                startDate     : qData.startDate || "—",
+                endDate       : qData.endDate   || "—",
+                salary        : qData.wages?.base  || 0,
+                shiftAllowance: qData.wages?.shift || 0,
+                managerName,
+            });
+        } catch (nErr) { console.warn("[Notif T1 cancelled]", nErr); }
+    };
+})();
+</script>
 </body>
 </html>
