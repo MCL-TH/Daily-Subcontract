@@ -285,6 +285,26 @@
 
             await db.collection("users").doc(uid).set(userData);
 
+            // /feature-bev T3: แจ้ง Admin Sub บริษัทที่ Employee เลือก
+            try {
+                const companyId = document.getElementById("company").value;
+                const companyName = document.getElementById("company").options[
+                    document.getElementById("company").selectedIndex
+                ]?.text || "—";
+                const adminSnap = await db.collection("users")
+                    .where("role", "==", "admin_sub")
+                    .where("companyId", "==", companyId)
+                    .limit(1).get();
+                const adminLineUid = adminSnap.empty ? null : adminSnap.docs[0].data().lineUid || null;
+                await Notif.employeeRegistered({
+                    userId: uid,
+                    adminLineUid,
+                    employeeName: userData.fullname,
+                    companyName,
+                    registeredAt: new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }),
+                });
+            } catch (nErr) { console.warn("[Notif T3]", nErr); }
+
             // ----- ขั้นตอนที่ 3: เสร็จสมบูรณ์ -----
             loadingText.innerHTML = "✅ ลงทะเบียนสำเร็จ! กำลังพาท่านไปหน้าถัดไป...";
             loadingText.style.backgroundColor = "#d4edda";
@@ -304,6 +324,9 @@
     });
 
 </script>
+
+<!-- /feature-bev: notification library -->
+<script src="notification.js"></script>
 
 </body>
 </html>
