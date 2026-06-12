@@ -50,8 +50,9 @@
         // ฟังก์ชันโยนผู้ใช้ไปหน้าต่างๆ
         function redirectUser(role, userId) {
             if (role === "visitor") {
-                window.location.replace("employee.html?uid=" + userId);
+                window.location.replace("badge.html?uid=" + userId);
             } else if (role === "asst_dept") {
+                // แก้ไข: ให้ผู้ช่วยหัวหน้าแผนกใช้หน้าเดียวกับหัวหน้าแผนก
                 window.location.replace("dept.html?uid=" + userId);
             } else {
                 window.location.replace(role + ".html?uid=" + userId);
@@ -70,24 +71,10 @@
                         document.getElementById("status-text").innerHTML = "❌ บัญชีของคุณถูกระงับการใช้งาน<br><small>กรุณาติดต่อผู้ดูแลระบบ</small>";
                         document.getElementById("status-text").style.color = "#c0392b";
                         document.querySelector('.loader').style.display = 'none';
-                        return;
-                    }
-
-                    // ตรวจสอบ Delegate: ถ้าเป็น visitor ให้เช็คว่าได้รับมอบสิทธิ์หรือเปล่า
-                    if (userData.role === 'visitor' && userData.status === 'approved' && userData.departmentId) {
-                        try {
-                            const delegateDoc = await db.collection("dept_delegates").doc(userData.departmentId).get();
-                            if (delegateDoc.exists) {
-                                const delegateUids = delegateDoc.data().delegateUids || [];
-                                if (delegateUids.includes(userId)) {
-                                    // มอบสิทธิ์แล้ว ส่งไป dept.html (แสดงเฉพาะแท็บเช็คชื่อ/ประเมิน)
-                                    window.location.replace("dept.html?uid=" + userId + "&mode=delegate");
-                                    return;
-                                }
-                            }
-                        } catch(e) { /* ถ้า collection ไม่มี ก็ผ่านไปได้ */ }
+                        return; // หยุดการทำงานตรงนี้เลย
                     }
                     
+                    // เด้งไปหน้าล่าสุดที่ถูกต้อง 100%
                     redirectUser(userData.role, userId);
                 } else {
                     window.location.replace("visitor.html?uid=" + userId);
@@ -132,6 +119,19 @@
 
                 // จำรหัส UID ไว้ในเครื่อง เพื่อใช้เร่งความเร็วในครั้งถัดไป
                 localStorage.setItem("myAppUserId", userId);
+
+                // /feature-bev: บันทึก lineUid (= LINE userId) ลง Firestore
+                // ใช้สำหรับส่ง notification ผ่าน LINE Messaging API
+                try {
+                    const userRef = db.collection("users").doc(userId);
+                    const userSnap = await userRef.get();
+                    if (userSnap.exists && !userSnap.data().lineUid) {
+                        await userRef.update({ lineUid: userId });
+                    } else if (!userSnap.exists) {
+                        // visitor ใหม่ — lineUid จะถูกบันทึกพร้อมกับ set() ใน visitor.html
+                        localStorage.setItem("pendingLineUid", userId);
+                    }
+                } catch (_) { /* ไม่ block การ redirect */ }
 
                 document.getElementById("status-text").innerText = "กำลังเชื่อมต่อฐานข้อมูล...";
                 checkFirebaseAndRedirect(userId);
