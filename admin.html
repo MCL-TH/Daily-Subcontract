@@ -827,5 +827,43 @@
         initAdminPanel();
 
     </script>
+
+<!-- /feature-bev: notification library -->
+<script src="notification.js"></script>
+<script>
+(function() {
+
+    // ── T4: patch saveEmployeeData → แจ้ง Employee เมื่อ Admin อนุมัติบัตร ──
+    const _origSave = window.saveEmployeeData;
+    window.saveEmployeeData = async function() {
+        const stat  = document.getElementById("modal-emp-status")?.value || "";
+        const empId = typeof currentTargetUid !== "undefined" ? currentTargetUid : null;
+
+        await _origSave.call(this);
+
+        if (stat !== "approved" || !empId) return;
+        try {
+            const empDoc = await db.collection("users").doc(empId).get();
+            const emp    = empDoc.exists ? empDoc.data() : {};
+
+            // ดึงชื่อบริษัท แผนก คลัง
+            const [coDoc, deptDoc, whDoc] = await Promise.all([
+                emp.companyId    ? db.collection("companies")  .doc(emp.companyId)   .get() : Promise.resolve(null),
+                emp.departmentId ? db.collection("departments").doc(emp.departmentId).get() : Promise.resolve(null),
+                emp.warehouseId  ? db.collection("warehouses") .doc(emp.warehouseId) .get() : Promise.resolve(null),
+            ]);
+
+            await Notif.badgeApproved({
+                userId         : empId,
+                employeeLineUid: emp.lineUid || null,
+                companyName    : coDoc?.data()?.name   || "—",
+                deptName       : deptDoc?.data()?.name || "—",
+                warehouseName  : whDoc?.data()?.name   || "—",
+            });
+        } catch (nErr) { console.warn("[Notif T4]", nErr); }
+    };
+
+})();
+</script>
 </body>
 </html>
