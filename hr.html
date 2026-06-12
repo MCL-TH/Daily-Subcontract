@@ -1057,5 +1057,98 @@
         initHRPanel();
 
     </script>
+
+<!-- /feature-bev: notification library -->
+<script src="notification.js"></script>
+<script>
+(function() {
+
+    // ── T2: patch saveAllocation → แจ้ง Admin Sub ที่ได้รับโควต้า ──────────
+    const _origAlloc = window.saveAllocation;
+    window.saveAllocation = async function() {
+        // เก็บ allocations + requestId ก่อนเรียก original (original ปิด modal + clear state)
+        const reqId  = typeof currentReqId !== "undefined" ? currentReqId : null;
+        const rows   = [...document.querySelectorAll(".alloc-row")];
+        const allocSnapshot = rows
+            .map(r => ({
+                companyId: r.querySelector(".alloc-comp")?.value || "",
+                amount   : parseInt(r.querySelector(".alloc-amt")?.value || 0),
+            }))
+            .filter(a => a.companyId && a.amount > 0);
+
+        // อ่าน quota data ก่อน
+        let qData = {};
+        try {
+            if (reqId) {
+                const snap = await db.collection("quota_requests").doc(reqId).get();
+                qData = snap.exists ? snap.data() : {};
+            }
+        } catch (_) {}
+
+        await _origAlloc.call(this);
+
+        // ส่ง notification แยกต่อบริษัท
+        if (!reqId || allocSnapshot.length === 0) return;
+        try {
+            await Promise.all(allocSnapshot.map(async alloc => {
+                const adminSnap = await db.collection("users")
+                    .where("role", "==", "admin_sub")
+                    .where("companyId", "==", alloc.companyId)
+                    .limit(1).get();
+                const adminLineUid = adminSnap.empty ? null : adminSnap.docs[0].data().lineUid || null;
+                await Notif.quotaAllocated({
+                    action        : "allocated",
+                    quotaRequestId: reqId,
+                    adminLineUid,
+                    companyId     : alloc.companyId,
+                    projectName   : qData.campaignName  || "—",
+                    amount        : alloc.amount,
+                    salary        : qData.wages?.base   || 0,
+                    shiftAllowance: qData.wages?.shift  || 0,
+                    startDate     : qData.startDate     || "—",
+                    endDate       : qData.endDate       || "—",
+                });
+            }));
+        } catch (nErr) { console.warn("[Notif T2]", nErr); }
+    };
+
+    // ── T5: patch saveEmployee → แจ้ง HR ทุกคน + Admin Sub ทุกคน เมื่อ ban ──
+    const _origEmp = window.saveEmployee;
+    window.saveEmployee = async function() {
+        const status   = document.getElementById("edit-emp-status")?.value || "";
+        const blReason = document.getElementById("edit-emp-bl-reason")?.value?.trim() || "";
+        const empId    = typeof currentEmpId !== "undefined" ? currentEmpId : null;
+
+        await _origEmp.call(this);
+
+        if (status !== "banned" || !empId) return;
+        try {
+            const [empDoc, hrSnap, adminSnap] = await Promise.all([
+                db.collection("users").doc(empId).get(),
+                db.collection("users").where("role", "==", "hr").get(),
+                db.collection("users").where("role", "==", "admin_sub").get(),
+            ]);
+            const emp    = empDoc.exists ? empDoc.data() : {};
+            const coSnap = emp.companyId
+                ? await db.collection("companies").doc(emp.companyId).get()
+                : null;
+            const hrLineUids    = hrSnap.docs.map(d => d.data().lineUid).filter(Boolean);
+            const adminLineUids = adminSnap.docs.map(d => d.data().lineUid).filter(Boolean);
+            const hrUser = typeof hrData !== "undefined" ? hrData : {};
+
+            await Notif.blacklisted({
+                userId       : empId,
+                employeeName : emp.fullname  || "—",
+                companyName  : coSnap?.data()?.name || "—",
+                reason       : blReason,
+                bannedByName : hrUser.fullname || "HR",
+                hrLineUids,
+                adminLineUids,
+            });
+        } catch (nErr) { console.warn("[Notif T5]", nErr); }
+    };
+
+})();
+</script>
 </body>
 </html>
